@@ -63,7 +63,6 @@ def main():
 
     logging.info("Bot started")
 
-    print_render_ip()
     while True:
         try:
             latest_time = get_latest_battle_time()
