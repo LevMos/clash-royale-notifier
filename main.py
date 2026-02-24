@@ -11,58 +11,107 @@ load_dotenv()
 CR_TOKEN = os.getenv("CR_TOKEN")
 TG_TOKEN = os.getenv("TG_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
-PLAYER_TAG = os.getenv("PLAYER_TAG")
+PLAYER_TAGS = os.getenv("PLAYER_TAGS").split(",")
 
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(levelname)s - %(message)s"
 )
 
-last_battle_time = None
+last_battle_times = {}
 
 
 @app.route("/")
 def home():
     return "Bot is running", 200
 
-
 @app.route("/check")
 def check():
-    global last_battle_time
 
     try:
-        latest_time = get_latest_battle_time()
+        for tag in PLAYER_TAGS:
 
-        if latest_time:
-            if last_battle_time and latest_time != last_battle_time:
-                send_telegram("🎮 Player just played a new battle!")
+            battle = get_latest_battle(tag)
 
-            last_battle_time = latest_time
+            if not battle:
+                continue
 
-        return jsonify({"status": "ok"}), 200
+            battle_time = battle["battleTime"]
+
+            # первый запуск для игрока
+            if tag not in last_battle_times:
+                last_battle_times[tag] = battle_time
+                continue
+
+            if battle_time != last_battle_times[tag]:
+
+                player = battle["team"][0]
+                opponent = battle["opponent"][0]
+
+                player_name = player["name"]
+                opponent_name = opponent["name"]
+
+                player_crowns = player["crowns"]
+                opponent_crowns = opponent["crowns"]
+
+                result = "🏆 *Victory*" if player_crowns > opponent_crowns else "❌ *Defeat*"
+
+                # изменение трофеев
+                trophy_change = player.get("trophyChange", 0)
+
+                if trophy_change > 0:
+                    trophy_text = f"📈 +{trophy_change}"
+                elif trophy_change < 0:
+                    trophy_text = f"📉 {trophy_change}"
+                else:
+                    trophy_text = "➖ 0"
+
+                mode = battle.get("gameMode", {}).get("name", "Unknown")
+
+                logging.info(
+                    f"{player_name} | {result} | "
+                    f"{player_crowns}-{opponent_crowns} | "
+                    f"Trophies: {trophy_change}"
+                )
+
+                message = (
+                    f"{result}\n\n"
+                    f"👤 *{player_name}*\n"
+                    f"🆚 {opponent_name}\n\n"
+                    f"📊 Score: *{player_crowns} - {opponent_crowns}*\n"
+                    f"{trophy_text}\n"
+                    f"⚔ Mode: {mode}"
+                )
+
+                send_telegram(message)
+
+                last_battle_times[tag] = battle_time
+
+        return {"status": "ok"}, 200
 
     except Exception as e:
         logging.error(f"Unexpected error: {e}")
-        return jsonify({"error": str(e)}), 500
-
+        return {"error": str(e)}, 500
+    
 
 def send_telegram(message):
     url = f"https://api.telegram.org/bot{TG_TOKEN}/sendMessage"
     data = {
         "chat_id": CHAT_ID,
-        "text": message
+        "text": message,
+        "parse_mode": "Markdown"
     }
+
     response = requests.post(url, data=data)
 
     if response.status_code != 200:
         logging.error(f"Telegram error: {response.status_code}")
         logging.error(response.text)
 
-
-def get_latest_battle_time():
+def get_latest_battle(player_tag):
     headers = {"Authorization": f"Bearer {CR_TOKEN}"}
 
-    encoded_tag = urllib.parse.quote(PLAYER_TAG)
+    encoded_tag = urllib.parse.quote(player_tag)
     url = f"https://api.clashroyale.com/v1/players/{encoded_tag}/battlelog"
 
     response = requests.get(url, headers=headers)
@@ -70,9 +119,9 @@ def get_latest_battle_time():
     if response.status_code == 200:
         battles = response.json()
         if battles:
-            return battles[0]["battleTime"]
+            return battles[0]
     else:
-        logging.error(f"Clash API error: {response.status_code}")
+        logging.error(f"{player_tag} | Clash API error: {response.status_code}")
         logging.error(response.text)
 
     return None
