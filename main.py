@@ -47,13 +47,23 @@ def get_latest_battle_time():
         logging.error(f"Clash API error: {response.status_code}")
 
     return None
-
+  
+def print_render_ip():
+    try:
+        response = requests.get("https://api.ipify.org")
+        if response.status_code == 200:
+            logging.info(f"Render Public IP: {response.text}")
+        else:
+            logging.error(f"IP check failed: {response.status_code}")
+    except Exception as e:
+        logging.error(f"IP detection error: {e}")
 
 def main():
     global last_battle_time
 
     logging.info("Bot started")
 
+    print_render_ip()
     while True:
         try:
             latest_time = get_latest_battle_time()
