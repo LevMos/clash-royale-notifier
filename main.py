@@ -28,6 +28,8 @@ def send_telegram(message):
     }
     response = requests.post(url, data=data)
     if response.status_code != 200:
+        print("Status:", response.status_code)
+        print("Body:", response.text)
         logging.error(f"Telegram error: {response.status_code}")
 
 
