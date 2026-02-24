@@ -3,7 +3,7 @@ import time
 import logging
 import requests
 from dotenv import load_dotenv
-
+import urllib.parse
 load_dotenv()
 
 CR_TOKEN = os.getenv("CR_TOKEN")
@@ -33,9 +33,12 @@ def send_telegram(message):
         logging.error(f"Telegram error: {response.status_code}")
 
 
+
 def get_latest_battle_time():
     headers = {"Authorization": f"Bearer {CR_TOKEN}"}
-    url = f"https://api.clashroyale.com/v1/players/{PLAYER_TAG}/battlelog"
+
+    encoded_tag = urllib.parse.quote(PLAYER_TAG)
+    url = f"https://api.clashroyale.com/v1/players/{encoded_tag}/battlelog"
 
     response = requests.get(url, headers=headers)
 
@@ -45,6 +48,7 @@ def get_latest_battle_time():
             return battles[0]["battleTime"]
     else:
         logging.error(f"Clash API error: {response.status_code}")
+        logging.error(f"Response body: {response.text}")
 
     return None
   
@@ -62,7 +66,7 @@ def main():
     global last_battle_time
 
     logging.info("Bot started")
-
+    print_render_ip()
     while True:
         try:
             latest_time = get_latest_battle_time()
