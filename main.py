@@ -246,8 +246,20 @@ def check():
             if exists.data:
                 continue
 
-            player = battle["team"][0]
+            # Находим нужного игрока по тегу
+            player = next(
+                (p for p in battle["team"] if p["tag"].upper() == tag),
+                None
+            )
+
+            if not player:
+                continue  # защита если вдруг формат странный
+
+            # Берем первого оппонента (для 2v2 можно улучшить позже)
             opponent = battle["opponent"][0]
+
+            player_name = player["name"]
+            opponent_name = opponent["name"]
 
             player_crowns = player["crowns"]
             opponent_crowns = opponent["crowns"]
@@ -277,10 +289,12 @@ def check():
 
             message = (
                 f"<b>{result_text}</b>\n\n"
-                f"📊 Score: {player_crowns} - {opponent_crowns}\n"
+                f"👤 <b>{player_name}</b>\n"
+                f"🆚 {opponent_name}\n\n"
+                f"📊 <b>Score:</b> {player_crowns} - {opponent_crowns}\n"
                 f"📈 Trophies: {trophy_change}\n"
-                f"⚔ {mode}"
-            )
+                f"⚔ <i>{mode}</i>"
+                        )
 
             # Отправляем уведомления только если это НЕ первая синхронизация
             if not first_sync:
