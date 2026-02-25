@@ -22,8 +22,6 @@ logging.basicConfig(
 
 last_battle_times = {}
 
-def escape_markdown(text):
-    return re.sub(r'([_*\[\]()~`>#+\-=|{}.!])', r'\\\1', text)
 
 
 @app.route("/")
@@ -55,14 +53,13 @@ def check():
 
                 player_name = player["name"]
                 opponent_name = opponent["name"]
-                player_name = escape_markdown(player_name)
-                opponent_name = escape_markdown(opponent_name)
+
 
                 player_crowns = player["crowns"]
                 opponent_crowns = opponent["crowns"]
 
                 result = "🏆 Victory" if player_crowns > opponent_crowns else "❌ Defeat"
-                result = escape_markdown(result)
+
                 # изменение трофеев
                 trophy_change = player.get("trophyChange", 0)
 
@@ -72,10 +69,8 @@ def check():
                     trophy_text = f"📉 {trophy_change}"
                 else:
                     trophy_text = "➖ 0"
-                trophy_text = escape_markdown(trophy_text)
 
                 mode = battle.get("gameMode", {}).get("name", "Unknown")
-                mode = escape_markdown(mode)
 
                 logging.info(
                     f"{player_name} | {result} | "
@@ -85,12 +80,12 @@ def check():
 
                 message = (
                     f"{result}\n\n"
-                    f"👤 *{player_name}*\n"
+                    f"👤 <b>{player_name}</b>\n"
                     f"🆚 {opponent_name}\n\n"
-                    f"📊 Score: *{player_crowns} - {opponent_crowns}*\n"
+                    f"📊 Score: <b>{player_crowns} - {opponent_crowns}</b>\n"
                     f"{trophy_text}\n"
                     f"⚔ Mode: {mode}"
-                )
+                        )
                 
                 send_telegram(message)
 
@@ -108,7 +103,7 @@ def send_telegram(message):
     data = {
         "chat_id": CHAT_ID,
         "text": message,
-        "parse_mode": "MarkdownV2"
+        "parse_mode": "HTML"
     }
 
     response = requests.post(url, data=data)
