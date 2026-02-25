@@ -81,6 +81,18 @@ def register_user(chat_id, username=None):
 # =============================
 
 def calculate_winrate(chat_id, tag):
+
+    # Проверяем, подписан ли пользователь на игрока
+    subscription = supabase.table("user_players") \
+    .select("id") \
+    .eq("user_id", chat_id) \
+    .eq("player_tag", tag) \
+    .execute()
+
+    if not subscription.data:
+        send_telegram("❌ You are not tracking this player.", chat_id)
+        return
+    
     response = supabase.table("battles") \
         .select("result") \
         .eq("player_tag", tag) \
@@ -92,7 +104,10 @@ def calculate_winrate(chat_id, tag):
         send_telegram("No games yet", chat_id)
         return
 
-    wins = sum(1 for g in games if g["result"])
+    wins = sum(1 for g in games if g["result"] is True)
+    if total == 0:
+        send_telegram("No games yet", chat_id)
+        return
     total = len(games)
     rate = round((wins / total) * 100, 1)
 
@@ -206,6 +221,14 @@ def check():
     tags = list(set(p["player_tag"] for p in response.data))
 
     for tag in tags:
+        # Проверяем есть ли уже матчи в базе
+        existing_battles = supabase.table("battles") \
+            .select("id") \
+            .eq("player_tag", tag) \
+            .limit(1) \
+            .execute()
+
+        first_sync = len(existing_battles.data) == 0
 
         battles = get_battle_log(tag)
 
@@ -259,8 +282,10 @@ def check():
                 f"⚔ {mode}"
             )
 
-            for user in users.data:
-                send_telegram(message, user["user_id"])
+            # Отправляем уведомления только если это НЕ первая синхронизация
+            if not first_sync:
+                for user in users.data:
+                    send_telegram(message, user["user_id"])
 
     return {"status": "ok"}, 200
 
