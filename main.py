@@ -138,30 +138,85 @@ def calculate_winrate(chat_id, tag):
 
 def handle_message(message):
     chat_id = message["chat"]["id"]
-    text = message.get("text", "")
+    text = message.get("text", "").strip()
 
+    # Логируем все входящие сообщения
+    logging.info(f"Received message from {chat_id}: {text}")
+
+    # Если пользователь новый — регистрируем его
     if chat_id not in users:
         users[chat_id] = {"players": [], "stats": {}}
+        logging.info(f"New user registered: {chat_id}")
 
+    # Обработка команд
     if text.startswith("/start"):
-        send_telegram("👋 Welcome! Use /add #TAG", chat_id)
+        logging.info(f"User {chat_id} executed /start")
+        send_telegram("👋 Welcome! Use /add #TAG to track a player", chat_id)
 
     elif text.startswith("/add"):
-        tag = text.split(" ")[1].upper()
+        try:
+            tag = text.split(" ")[1].upper()
+            if tag in users[chat_id]["players"]:
+                send_telegram(f"⚠ {tag} is already added.", chat_id)
+                logging.info(f"User {chat_id} tried to add duplicate tag {tag}")
+                return
 
-        users[chat_id]["players"].append(tag)
-        users[chat_id]["stats"][tag] = []
+            users[chat_id]["players"].append(tag)
+            users[chat_id]["stats"][tag] = []
+            send_telegram(f"✅ Added {tag}", chat_id)
+            logging.info(f"User {chat_id} added player {tag}")
 
-        send_telegram(f"✅ Added {tag}", chat_id)
+        except IndexError:
+            send_telegram("❌ Usage: /add #TAG", chat_id)
+            logging.warning(f"User {chat_id} used /add incorrectly")
 
     elif text.startswith("/list"):
         players = users[chat_id]["players"]
-        send_telegram("📋 Your players:\n" + "\n".join(players), chat_id)
+        send_telegram("📋 Your players:\n" + ("\n".join(players) if players else "No players added"), chat_id)
+        logging.info(f"User {chat_id} executed /list")
 
     elif text.startswith("/winrate"):
-        tag = text.split(" ")[1].upper()
-        calculate_winrate(chat_id, tag)
+        try:
+            tag = text.split(" ")[1].upper()
+            logging.info(f"User {chat_id} requested winrate for {tag}")
+            calculate_winrate(chat_id, tag)
+        except IndexError:
+            send_telegram("❌ Usage: /winrate #TAG", chat_id)
+            logging.warning(f"User {chat_id} used /winrate incorrectly")
 
+    elif text.startswith("/remove"):
+        try:
+            tag = text.split(" ")[1].upper()
+            if tag in users[chat_id]["players"]:
+                users[chat_id]["players"].remove(tag)
+                users[chat_id]["stats"].pop(tag, None)
+                send_telegram(f"🗑 Removed {tag}", chat_id)
+                logging.info(f"User {chat_id} removed player {tag}")
+            else:
+                send_telegram(f"⚠ {tag} not found in your list", chat_id)
+                logging.info(f"User {chat_id} tried to remove nonexistent tag {tag}")
+        except IndexError:
+            send_telegram("❌ Usage: /remove #TAG", chat_id)
+            logging.warning(f"User {chat_id} used /remove incorrectly")
+
+    elif text.startswith("/help"):
+        help_message = (
+            "📖 <b>Bot Commands:</b>\n\n"
+            "/start - 👋 Start and register yourself\n"
+            "/add #TAG - ➕ Add a player to track\n"
+            "/list - 📋 Show your players\n"
+            "/winrate #TAG - 📊 Show player's winrate\n"
+            "/remove #TAG - 🗑 Remove a player\n"
+            "/help - ❓ Show this help message"
+        )
+        send_telegram(help_message, chat_id)
+        logging.info(f"User {chat_id} requested /help")
+
+    else:
+        send_telegram("❌ Unknown command. Use /help", chat_id)
+        logging.warning(f"User {chat_id} sent unknown command: {text}")
+
+        
 def send_telegram(message, chat_id):
     url = f"https://api.telegram.org/bot{TG_TOKEN}/sendMessage"
 
