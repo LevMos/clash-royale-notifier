@@ -96,7 +96,7 @@ def register_user(chat_id, username=None):
 # WINRATE
 # =============================
 
-def calculate_winrate(chat_id, tag):
+def calculate_winrate(chat_id, tag, limit=None):
     try:
         subscription = supabase.table("user_players") \
             .select("id") \
@@ -108,10 +108,15 @@ def calculate_winrate(chat_id, tag):
             send_telegram("❌ You are not tracking this player.", chat_id)
             return
 
-        response = supabase.table("battles") \
+        query = supabase.table("battles") \
             .select("result") \
             .eq("player_tag", tag) \
-            .execute()
+            .order("battle_time", desc=True)
+
+        if limit:
+            query = query.limit(limit)
+
+        response = query.execute()
 
         games = response.data
         total = len(games)
@@ -120,11 +125,14 @@ def calculate_winrate(chat_id, tag):
             send_telegram("No games yet", chat_id)
             return
 
-        wins = sum(1 for g in games if g.get("result"))
+        wins = sum(1 for g in games if g.get("result") is True)
         rate = round((wins / total) * 100, 1)
 
+        title = f"Last {limit} games" if limit else "All games"
+
         message = (
-            f"📊 <b>Winrate for {tag}</b>\n\n"
+            f"📊 <b>Winrate for {tag}</b>\n"
+            f"<i>{title}</i>\n\n"
             f"Games: {total}\n"
             f"Wins: {wins}\n"
             f"Winrate: {rate}%"
@@ -135,7 +143,6 @@ def calculate_winrate(chat_id, tag):
     except Exception as e:
         logging.error(f"Winrate error: {e}")
         send_telegram("⚠ Error calculating winrate.", chat_id)
-
 # =============================
 # TELEGRAM COMMAND HANDLER
 # =============================
@@ -203,9 +210,21 @@ def handle_message(message):
 
         elif text.startswith("/help"):
             send_telegram(
-                "/add #TAG\n/list\n/winrate #TAG\n/remove #TAG",
+                "/add #TAG\n"
+                "/list\n"
+                "/winrate #TAG\n"
+                "/winrate10 #TAG\n"
+                "/remove #TAG",
                 chat_id
-            )
+                        )
+        elif text.startswith("/winrate10"):
+            parts = text.split(" ")
+            if len(parts) < 2:
+                send_telegram("❌ Usage: /winrate10 #TAG", chat_id)
+                return
+
+            tag = parts[1].upper()
+            calculate_winrate(chat_id, tag, limit=10)
 
         else:
             send_telegram("❌ Unknown command", chat_id)
