@@ -120,7 +120,7 @@ def calculate_winrate(chat_id, tag):
             send_telegram("No games yet", chat_id)
             return
 
-        wins = sum(1 for g in games if g["result"] is True)
+        wins = sum(1 for g in games if g.get("result"))
         rate = round((wins / total) * 100, 1)
 
         message = (
