@@ -2,12 +2,13 @@ import os
 import logging
 import requests
 import urllib.parse
+import threading
 from flask import Flask, request
 from dotenv import load_dotenv
 from supabase import create_client, Client
 
 # =============================
-#INIT
+# INIT
 # =============================
 
 load_dotenv()
@@ -26,118 +27,133 @@ logging.basicConfig(
     format="%(asctime)s - %(levelname)s - %(message)s"
 )
 
+# Блокировка чтобы /check не запускался параллельно
+check_lock = threading.Lock()
+
 # =============================
-#TELEGRAM
+# TELEGRAM
 # =============================
 
 def send_telegram(message, chat_id):
-    url = f"https://api.telegram.org/bot{TG_TOKEN}/sendMessage"
+    try:
+        url = f"https://api.telegram.org/bot{TG_TOKEN}/sendMessage"
 
-    data = {
-        "chat_id": chat_id,
-        "text": message,
-        "parse_mode": "HTML"
-    }
+        data = {
+            "chat_id": chat_id,
+            "text": message,
+            "parse_mode": "HTML"
+        }
 
-    response = requests.post(url, data=data)
+        response = requests.post(url, data=data, timeout=10)
 
-    if response.status_code != 200:
-        logging.error(f"Telegram error: {response.status_code}")
-        logging.error(response.text)
+        if response.status_code != 200:
+            logging.error(f"Telegram error: {response.status_code}")
+            logging.error(response.text)
+
+    except Exception as e:
+        logging.error(f"Telegram send error: {e}")
 
 # =============================
 # CLASH API
 # =============================
 
 def get_battle_log(player_tag):
-    headers = {"Authorization": f"Bearer {CR_TOKEN}"}
-    encoded_tag = urllib.parse.quote(player_tag)
-    url = f"https://api.clashroyale.com/v1/players/{encoded_tag}/battlelog"
+    try:
+        headers = {"Authorization": f"Bearer {CR_TOKEN}"}
+        encoded_tag = urllib.parse.quote(player_tag)
+        url = f"https://api.clashroyale.com/v1/players/{encoded_tag}/battlelog"
 
-    response = requests.get(url, headers=headers)
+        response = requests.get(url, headers=headers, timeout=10)
 
-    if response.status_code == 200:
-        return response.json()
+        if response.status_code == 200:
+            return response.json()
 
-    logging.error(f"{player_tag} | Clash API error: {response.status_code}")
-    logging.error(response.text)
+        logging.error(f"{player_tag} | Clash API error: {response.status_code}")
+        logging.error(response.text)
+
+    except Exception as e:
+        logging.error(f"Clash API request failed: {e}")
+
     return []
 
 # =============================
-#USER MANAGEMENT
+# USER MANAGEMENT
 # =============================
 
 def register_user(chat_id, username=None):
-    existing = supabase.table("users").select("id").eq("id", chat_id).execute()
+    try:
+        existing = supabase.table("users").select("id").eq("id", chat_id).execute()
 
-    if not existing.data:
-        supabase.table("users").insert({
-            "id": chat_id,
-            "username": username
-        }).execute()
+        if not existing.data:
+            supabase.table("users").insert({
+                "id": chat_id,
+                "username": username
+            }).execute()
+    except Exception as e:
+        logging.error(f"Register user error: {e}")
 
 # =============================
-#WINRATE
+# WINRATE
 # =============================
 
 def calculate_winrate(chat_id, tag):
+    try:
+        subscription = supabase.table("user_players") \
+            .select("id") \
+            .eq("user_id", chat_id) \
+            .eq("player_tag", tag) \
+            .execute()
 
-    # Проверяем, подписан ли пользователь на игрока
-    subscription = supabase.table("user_players") \
-    .select("id") \
-    .eq("user_id", chat_id) \
-    .eq("player_tag", tag) \
-    .execute()
+        if not subscription.data:
+            send_telegram("❌ You are not tracking this player.", chat_id)
+            return
 
-    if not subscription.data:
-        send_telegram("❌ You are not tracking this player.", chat_id)
-        return
-    
-    response = supabase.table("battles") \
-        .select("result") \
-        .eq("player_tag", tag) \
-        .execute()
+        response = supabase.table("battles") \
+            .select("result") \
+            .eq("player_tag", tag) \
+            .execute()
 
-    games = response.data
+        games = response.data
+        total = len(games)
 
-    if not games:
-        send_telegram("No games yet", chat_id)
-        return
+        if total == 0:
+            send_telegram("No games yet", chat_id)
+            return
 
-    wins = sum(1 for g in games if g["result"] is True)
-    if total == 0:
-        send_telegram("No games yet", chat_id)
-        return
-    total = len(games)
-    rate = round((wins / total) * 100, 1)
+        wins = sum(1 for g in games if g["result"] is True)
+        rate = round((wins / total) * 100, 1)
 
-    message = (
-        f"📊 <b>Winrate for {tag}</b>\n\n"
-        f"Games: {total}\n"
-        f"Wins: {wins}\n"
-        f"Winrate: {rate}%"
-    )
+        message = (
+            f"📊 <b>Winrate for {tag}</b>\n\n"
+            f"Games: {total}\n"
+            f"Wins: {wins}\n"
+            f"Winrate: {rate}%"
+        )
 
-    send_telegram(message, chat_id)
+        send_telegram(message, chat_id)
+
+    except Exception as e:
+        logging.error(f"Winrate error: {e}")
+        send_telegram("⚠ Error calculating winrate.", chat_id)
 
 # =============================
-#TELEGRAM COMMAND HANDLER
+# TELEGRAM COMMAND HANDLER
 # =============================
 
 def handle_message(message):
-    chat_id = message["chat"]["id"]
-    username = message["chat"].get("username")
-    text = message.get("text", "").strip()
+    try:
+        chat_id = message["chat"]["id"]
+        username = message["chat"].get("username")
+        text = message.get("text", "").strip()
 
-    logging.info(f"Message from {chat_id}: {text}")
+        logging.info(f"Message from {chat_id}: {text}")
 
-    register_user(chat_id, username)
+        register_user(chat_id, username)
 
-    if text.startswith("/start"):
-        send_telegram("👋 Welcome! Use /add #TAG to track a player", chat_id)
+        if text.startswith("/start"):
+            send_telegram("👋 Welcome! Use /add #TAG to track a player", chat_id)
 
-    elif text.startswith("/add"):
-        try:
+        elif text.startswith("/add"):
             tag = text.split(" ")[1].upper()
 
             existing = supabase.table("user_players") \
@@ -157,31 +173,24 @@ def handle_message(message):
 
             send_telegram(f"✅ Added {tag}", chat_id)
 
-        except IndexError:
-            send_telegram("❌ Usage: /add #TAG", chat_id)
+        elif text.startswith("/list"):
+            response = supabase.table("user_players") \
+                .select("player_tag") \
+                .eq("user_id", chat_id) \
+                .execute()
 
-    elif text.startswith("/list"):
-        response = supabase.table("user_players") \
-            .select("player_tag") \
-            .eq("user_id", chat_id) \
-            .execute()
+            players = [p["player_tag"] for p in response.data]
 
-        players = [p["player_tag"] for p in response.data]
+            send_telegram(
+                "📋 Your players:\n" + ("\n".join(players) if players else "No players added"),
+                chat_id
+            )
 
-        send_telegram(
-            "📋 Your players:\n" + ("\n".join(players) if players else "No players added"),
-            chat_id
-        )
-
-    elif text.startswith("/winrate"):
-        try:
+        elif text.startswith("/winrate"):
             tag = text.split(" ")[1].upper()
             calculate_winrate(chat_id, tag)
-        except IndexError:
-            send_telegram("❌ Usage: /winrate #TAG", chat_id)
 
-    elif text.startswith("/remove"):
-        try:
+        elif text.startswith("/remove"):
             tag = text.split(" ")[1].upper()
 
             supabase.table("user_players") \
@@ -192,36 +201,29 @@ def handle_message(message):
 
             send_telegram(f"🗑 Removed {tag}", chat_id)
 
-        except IndexError:
-            send_telegram("❌ Usage: /remove #TAG", chat_id)
+        elif text.startswith("/help"):
+            send_telegram(
+                "/add #TAG\n/list\n/winrate #TAG\n/remove #TAG",
+                chat_id
+            )
 
-    elif text.startswith("/help"):
-        help_message = (
-            "📖 <b>Bot Commands:</b>\n\n"
-            "/start - 👋 Register\n"
-            "/add #TAG - ➕ Track player\n"
-            "/list - 📋 Show players\n"
-            "/winrate #TAG - 📊 Winrate\n"
-            "/remove #TAG - 🗑 Remove player\n"
-            "/help - ❓ Help"
-        )
-        send_telegram(help_message, chat_id)
+        else:
+            send_telegram("❌ Unknown command", chat_id)
 
-    else:
-        send_telegram("❌ Unknown command. Use /help", chat_id)
+    except Exception as e:
+        logging.error(f"Handle message error: {e}")
 
 # =============================
-#CHECK NEW MATCHES
+# CHECK MATCHES
 # =============================
 
-@app.route("/check")
-def check():
+def run_check():
 
     response = supabase.table("user_players").select("player_tag").execute()
     tags = list(set(p["player_tag"] for p in response.data))
 
     for tag in tags:
-        # Проверяем есть ли уже матчи в базе
+
         existing_battles = supabase.table("battles") \
             .select("id") \
             .eq("player_tag", tag) \
@@ -231,55 +233,51 @@ def check():
         first_sync = len(existing_battles.data) == 0
 
         battles = get_battle_log(tag)
+        if not battles:
+            continue
 
-        for battle in reversed(battles):
+        battle = battles[0]
+        battle_time = battle["battleTime"]
 
-            battle_time = battle["battleTime"]
+        exists = supabase.table("battles") \
+            .select("id") \
+            .eq("player_tag", tag) \
+            .eq("battle_time", battle_time) \
+            .execute()
 
-            # Проверяем, есть ли уже такой бой
-            exists = supabase.table("battles") \
-                .select("id") \
-                .eq("player_tag", tag) \
-                .eq("battle_time", battle_time) \
-                .execute()
+        if exists.data:
+            continue
 
-            if exists.data:
-                continue
+        player = next(
+            (p for p in battle["team"] if p["tag"].upper() == tag),
+            None
+        )
 
-            # Находим нужного игрока по тегу
-            player = next(
-                (p for p in battle["team"] if p["tag"].upper() == tag),
-                None
-            )
+        if not player:
+            continue
 
-            if not player:
-                continue  # защита если вдруг формат странный
+        opponent = battle["opponent"][0]
 
-            # Берем первого оппонента (для 2v2 можно улучшить позже)
-            opponent = battle["opponent"][0]
+        player_name = player["name"]
+        opponent_name = opponent["name"]
+        player_crowns = player["crowns"]
+        opponent_crowns = opponent["crowns"]
+        trophy_change = player.get("trophyChange", 0)
+        mode = battle.get("gameMode", {}).get("name", "Unknown")
 
-            player_name = player["name"]
-            opponent_name = opponent["name"]
+        result = player_crowns > opponent_crowns
 
-            player_crowns = player["crowns"]
-            opponent_crowns = opponent["crowns"]
-            trophy_change = player.get("trophyChange", 0)
-            mode = battle.get("gameMode", {}).get("name", "Unknown")
+        supabase.table("battles").insert({
+            "player_tag": tag,
+            "battle_time": battle_time,
+            "result": result,
+            "player_crowns": player_crowns,
+            "opponent_crowns": opponent_crowns,
+            "trophy_change": trophy_change,
+            "game_mode": mode
+        }).execute()
 
-            result = player_crowns > opponent_crowns
-
-            # Сохраняем бой
-            supabase.table("battles").insert({
-                "player_tag": tag,
-                "battle_time": battle_time,
-                "result": result,
-                "player_crowns": player_crowns,
-                "opponent_crowns": opponent_crowns,
-                "trophy_change": trophy_change,
-                "game_mode": mode
-            }).execute()
-
-            # Отправляем уведомление подписанным пользователям
+        if not first_sync:
             users = supabase.table("user_players") \
                 .select("user_id") \
                 .eq("player_tag", tag) \
@@ -291,37 +289,53 @@ def check():
                 f"<b>{result_text}</b>\n\n"
                 f"👤 <b>{player_name}</b>\n"
                 f"🆚 {opponent_name}\n\n"
-                f"📊 <b>Score:</b> {player_crowns} - {opponent_crowns}\n"
-                f"📈 Trophies: {trophy_change}\n"
+                f"📊 {player_crowns} - {opponent_crowns}\n"
+                f"📈 {trophy_change}\n"
                 f"⚔ <i>{mode}</i>"
-                        )
+            )
 
-            # Отправляем уведомления только если это НЕ первая синхронизация
-            if not first_sync:
-                for user in users.data:
-                    send_telegram(message, user["user_id"])
-
-    return {"status": "ok"}, 200
+            for user in users.data:
+                send_telegram(message, user["user_id"])
 
 # =============================
-#WEBHOOK
+# ROUTES
 # =============================
+
+@app.route("/check")
+def check():
+    try:
+        if not check_lock.acquire(blocking=False):
+            return {"status": "already running"}, 200
+
+        run_check()
+        return {"status": "ok"}, 200
+
+    except Exception as e:
+        logging.error(f"CHECK ERROR: {e}")
+        return {"status": "error"}, 200
+
+    finally:
+        if check_lock.locked():
+            check_lock.release()
 
 @app.route("/webhook", methods=["POST"])
 def webhook():
-    data = request.json
+    try:
+        data = request.json
+        if "message" in data:
+            handle_message(data["message"])
+        return "ok", 200
 
-    if "message" in data:
-        handle_message(data["message"])
-
-    return "ok", 200
+    except Exception as e:
+        logging.error(f"WEBHOOK ERROR: {e}")
+        return "ok", 200
 
 @app.route("/")
 def home():
     return "Bot is running", 200
 
 # =============================
-#RUN
+# RUN
 # =============================
 
 if __name__ == "__main__":
