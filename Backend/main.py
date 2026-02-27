@@ -71,15 +71,43 @@ def check_new_battles():
             }).execute()
 
             # Отправляем уведомление
-            status = "🏆 WIN" if result else "❌ LOSS"
-            send_telegram(f"{tag}\n{status}", chat_id)
+            # --- Формируем красивое сообщение ---
 
-        logging.info("Battle check completed.")
+            try:
+                player = latest["team"][0]
+                opponent = latest["opponent"][0]
+
+                player_name = player.get("name", "Unknown")
+                opponent_name = opponent.get("name", "Unknown")
+
+                player_crowns = player.get("crowns", 0)
+                opponent_crowns = opponent.get("crowns", 0)
+
+                battle_type = latest.get("type", "Unknown")
+
+                if result:
+                    status_line = "🏆 <b>Victory</b>"
+                else:
+                    status_line = "❌ <b>Defeat</b>"
+
+                message = (
+                    f"{status_line}\n\n"
+                    f"👤 <b>{player_name}</b>\n"
+                    f"🆚 {opponent_name}\n\n"
+                    f"📊 {player_crowns} - {opponent_crowns}\n"
+                    f"📈 {player_crowns - opponent_crowns}\n"
+                    f"⚔ {battle_type.capitalize()}"
+                )
+
+                send_telegram(message, chat_id)
+
+            except Exception as e:
+                logging.error(f"Battle message build error: {e}")
+
+                logging.info("Battle check completed.")
 
     except Exception as e:
-        logging.error(f"Battle check error: {e}")
-
-
+                    logging.error(f"Battle message build error: {e}")
 
 @app.route("/check", methods=["GET"])
 def run_check():
