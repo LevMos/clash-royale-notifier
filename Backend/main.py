@@ -124,11 +124,9 @@ def check_new_battles():
                 else:
                     trophy_line = " "
 
-                if starting_trophies is not None and trophy_change is not None:
-                    current_trophies = starting_trophies + trophy_change
-                    trophies_total_line = f"🏆 Total: {current_trophies}"
-                else:
-                    trophies_total_line = ""
+                    if starting_trophies is not None:
+                        current_trophies = starting_trophies + trophy_change
+                        trophies_total_line = f"🏆 Total: {current_trophies}"   
 
                 if result:
                     status_line = "🏆 <b>Victory</b>"
@@ -140,9 +138,10 @@ def check_new_battles():
                     f"🆚 {opponent_name}\n\n"
                     f"📊 {player_crowns} - {opponent_crowns}\n"
                     f"{trophy_line}\n"
+                    f"{trophies_total_line}\n"
                     f"{streak_line}\n"
                     f"{avg_line}\n"
-                    f"⚔ {battle_mode_line}"
+                    f"{battle_mode_line}"
                 )
                 send_telegram(message, chat_id)
 
@@ -199,6 +198,20 @@ def send_photo(chat_id, image_bytes):
 
     except Exception as e:
         logging.error(f"Telegram photo send error: {e}")
+
+def send_gif(chat_id, gif_url):
+    try:
+        url = f"https://api.telegram.org/bot{TG_TOKEN}/sendAnimation"
+
+        data = {
+            "chat_id": chat_id,
+            "animation": gif_url
+        }
+
+        requests.post(url, data=data, timeout=20)
+
+    except Exception as e:
+        logging.error(f"GIF send error: {e}")
 # =============================
 # CLASH API
 # =============================
@@ -437,6 +450,9 @@ def handle_message(message):
                 "/remove #TAG",
                 chat_id
             )
+        elif command == "лох":
+            gif_url = "https://media0.giphy.com/media/v1.Y2lkPTc5MGI3NjExb3RnbXlwYXo1dWc1Z3BrNWh5NzRhem00bzB2MWw3dGU3Z3pidTQ1YyZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/qwGtSvKLr3Ae0aydDy/giphy.gif"
+            send_gif(chat_id, gif_url)
 
         else:
             send_telegram("❌ Unknown command", chat_id)
