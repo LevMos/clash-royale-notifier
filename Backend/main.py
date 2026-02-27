@@ -8,13 +8,10 @@ import matplotlib.pyplot as plt
 from flask import Flask, request
 from dotenv import load_dotenv
 from supabase import create_client, Client
-
-# =============================
+# ============================
 # INIT
 # =============================
-
 load_dotenv()
-
 CR_TOKEN = os.getenv("CR_TOKEN")
 TG_TOKEN = os.getenv("TG_TOKEN")
 SUPABASE_URL = os.getenv("SUPABASE_URL")
@@ -28,7 +25,6 @@ check_lock = threading.Lock()
 # =============================
 # BATTLE CHECK (CRON)
 # =============================
-
 def check_new_battles():
     try:
         users = supabase.table("user_players").select("user_id, player_tag").execute().data
@@ -47,59 +43,46 @@ def check_new_battles():
 
             latest = battles[0]
             battle_time = latest["battleTime"]
-
             exists = supabase.table("battles") \
                 .select("id") \
                 .eq("player_tag", tag) \
                 .eq("battle_time", battle_time) \
                 .execute()
-
             if exists.data:
                 continue
-
-            # Определяем победу
             try:
                 result = latest["team"][0]["crowns"] > latest["opponent"][0]["crowns"]
             except:
                 continue
-
-            # Сохраняем в БД
             supabase.table("battles").insert({
                 "player_tag": tag,
                 "battle_time": battle_time,
                 "result": result
             }).execute()
-            # --- Calculate win streak ---
             recent_games = supabase.table("battles") \
                 .select("result") \
                 .eq("player_tag", tag) \
                 .order("battle_time", desc=True) \
                 .limit(20) \
                 .execute().data
-
             streak = 0
             for g in recent_games:
                 if g["result"]:
                     streak += 1
                 else:
                     break
-
             if streak > 1:
                 streak_line = f"🔥 Win streak: {streak}"
             else:
                 streak_line = ""
-            
-            # --- Average trophy change last 10 games ---
             last_10 = supabase.table("battles") \
                 .select("result, battle_time") \
                 .eq("player_tag", tag) \
                 .order("battle_time", desc=True) \
                 .limit(10) \
                 .execute().data
-
             total_change = 0
             count = 0
-
             for g in last_10:
                 battle = next((b for b in battles if b["battleTime"] == g["battle_time"]), None)
                 if battle:
@@ -107,16 +90,11 @@ def check_new_battles():
                     if tc is not None:
                         total_change += tc
                         count += 1
-
             if count > 0:
                 avg_change = round(total_change / count, 1)
                 avg_line = f"📊 Avg (10): {avg_change}"
             else:
                 avg_line = ""
-
-            # Отправляем уведомление
-            # --- Формируем красивое сообщение ---
-
             try:
                 player = latest["team"][0]
                 opponent = latest["opponent"][0]
@@ -127,7 +105,12 @@ def check_new_battles():
                 player_crowns = player.get("crowns", 0)
                 opponent_crowns = opponent.get("crowns", 0)
                 trophy_change = player.get("trophyChange", 0)    
-                battle_type = latest.get("type", "Unknown")
+                game_mode = latest.get("gameMode", {}).get("name", None)
+                if game_mode:
+                    battle_mode_line = f"⚔ {game_mode}"
+                else:
+                    raw_type = latest.get("type", "Unknown")
+                    battle_mode_line = f"⚔ {raw_type}"
                 starting_trophies = player.get("startingTrophies")
                 trophy_change = player.get("trophyChange")
 
@@ -139,7 +122,7 @@ def check_new_battles():
                     else:
                         trophy_line = "➖ 0 🏆"
                 else:
-                    trophy_line = "🏆 No trophy change"
+                    trophy_line = " "
 
                 if starting_trophies is not None and trophy_change is not None:
                     current_trophies = starting_trophies + trophy_change
@@ -159,7 +142,7 @@ def check_new_battles():
                     f"{trophy_line}\n"
                     f"{streak_line}\n"
                     f"{avg_line}\n"
-                    f"⚔ {battle_type.capitalize()}"
+                    f"⚔ {battle_mode_line}"
                 )
                 send_telegram(message, chat_id)
 
@@ -185,13 +168,9 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(levelname)s - %(message)s"
 )
-
-
-
 # =============================
 # TELEGRAM
 # =============================
-
 def send_telegram(message, chat_id):
     try:
         url = f"https://api.telegram.org/bot{TG_TOKEN}/sendMessage"
@@ -223,7 +202,6 @@ def send_photo(chat_id, image_bytes):
 # =============================
 # CLASH API
 # =============================
-
 def get_battle_log(player_tag):
     try:
         headers = {"Authorization": f"Bearer {CR_TOKEN}"}
@@ -241,11 +219,9 @@ def get_battle_log(player_tag):
         logging.error(f"Clash API request failed: {e}")
 
     return []
-
-# =============================
+# ============================
 # GRAPH BUILD
-# =============================
-
+# ============================
 def send_winrate_graph(chat_id, tag, last_n=None):
     try:
         tag = tag.upper()
@@ -291,11 +267,9 @@ def send_winrate_graph(chat_id, tag, last_n=None):
     except Exception as e:
         logging.error(f"Graph error: {e}")
         send_telegram("⚠ Error building graph.", chat_id)
-
 # =============================
 # WINRATE
 # =============================
-
 def calculate_winrate(chat_id, tag, last_n=None):
     try:
         tag = tag.upper()
@@ -345,11 +319,9 @@ def calculate_winrate(chat_id, tag, last_n=None):
     except Exception as e:
         logging.error(f"Winrate error: {e}")
         send_telegram("⚠ Error calculating winrate.", chat_id)
-
 # =============================
 # TELEGRAM HANDLER
 # =============================
-
 def handle_message(message):
     try:
         chat_id = message["chat"]["id"]
@@ -497,7 +469,6 @@ def send_webapp_button(chat_id, tag):
 # =============================
 # USER REGISTER
 # =============================
-
 def register_user(chat_id, username=None):
     try:
         existing = supabase.table("users").select("id").eq("id", chat_id).execute()
@@ -509,11 +480,9 @@ def register_user(chat_id, username=None):
             }).execute()
     except Exception as e:
         logging.error(f"Register user error: {e}")
-
 # =============================
 # ROUTES
 # =============================
-
 @app.route("/webhook", methods=["POST"])
 def webhook():
     data = request.json
@@ -524,10 +493,6 @@ def webhook():
 @app.route("/")
 def home():
     return "Bot is running", 200
-
-# =============================
-# RUN
-# =============================
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
