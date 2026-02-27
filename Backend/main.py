@@ -3,6 +3,8 @@ import logging
 import requests
 import urllib.parse
 import threading
+import io
+import matplotlib.pyplot as plt
 from flask import Flask, request
 from dotenv import load_dotenv
 from supabase import create_client, Client
@@ -19,15 +21,82 @@ SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+from flask import send_from_directory
 
 app = Flask(__name__)
+check_lock = threading.Lock()
+# =============================
+# BATTLE CHECK (CRON)
+# =============================
+
+def check_new_battles():
+    try:
+        users = supabase.table("user_players").select("user_id, player_tag").execute().data
+
+        if not users:
+            logging.info("No tracked players.")
+            return
+
+        for sub in users:
+            chat_id = sub["user_id"]
+            tag = sub["player_tag"]
+
+            battles = get_battle_log(tag)
+            if not battles:
+                continue
+
+            latest = battles[0]
+            battle_time = latest["battleTime"]
+
+            exists = supabase.table("battles") \
+                .select("id") \
+                .eq("player_tag", tag) \
+                .eq("battle_time", battle_time) \
+                .execute()
+
+            if exists.data:
+                continue
+
+            # Определяем победу
+            try:
+                result = latest["team"][0]["crowns"] > latest["opponent"][0]["crowns"]
+            except:
+                continue
+
+            # Сохраняем в БД
+            supabase.table("battles").insert({
+                "player_tag": tag,
+                "battle_time": battle_time,
+                "result": result
+            }).execute()
+
+            # Отправляем уведомление
+            status = "🏆 WIN" if result else "❌ LOSS"
+            send_telegram(f"{tag}\n{status}", chat_id)
+
+        logging.info("Battle check completed.")
+
+    except Exception as e:
+        logging.error(f"Battle check error: {e}")
+
+
+
+@app.route("/check", methods=["GET"])
+def run_check():
+    if check_lock.locked():
+        return "Already running", 200
+
+    with check_lock:
+        check_new_battles()
+
+    return "OK", 200
 
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(levelname)s - %(message)s"
 )
 
-check_lock = threading.Lock()
+
 
 # =============================
 # TELEGRAM
@@ -48,6 +117,19 @@ def send_telegram(message, chat_id):
     except Exception as e:
         logging.error(f"Telegram send error: {e}")
 
+def send_photo(chat_id, image_bytes):
+    try:
+        url = f"https://api.telegram.org/bot{TG_TOKEN}/sendPhoto"
+        files = {
+            "photo": ("graph.png", image_bytes)
+        }
+        data = {
+            "chat_id": chat_id
+        }
+        requests.post(url, data=data, files=files, timeout=20)
+
+    except Exception as e:
+        logging.error(f"Telegram photo send error: {e}")
 # =============================
 # CLASH API
 # =============================
@@ -69,6 +151,56 @@ def get_battle_log(player_tag):
         logging.error(f"Clash API request failed: {e}")
 
     return []
+
+# =============================
+# GRAPH BUILD
+# =============================
+
+def send_winrate_graph(chat_id, tag, last_n=None):
+    try:
+        tag = tag.upper()
+
+        response = supabase.table("battles") \
+            .select("result, battle_time") \
+            .eq("player_tag", tag) \
+            .order("battle_time", desc=False) \
+            .execute()
+
+        games = response.data
+
+        if not games:
+            send_telegram("No games to build graph.", chat_id)
+            return
+
+        if last_n:
+            games = games[-last_n:]
+
+        cumulative_rates = []
+        wins = 0
+
+        for i, g in enumerate(games, start=1):
+            if g["result"] == True:
+                wins += 1
+            cumulative_rates.append((wins / i) * 100)
+
+        # --- Строим график ---
+        plt.figure()
+        plt.plot(range(1, len(cumulative_rates) + 1), cumulative_rates)
+        plt.xlabel("Games")
+        plt.ylabel("Winrate %")
+        plt.title(f"Winrate progression for {tag}")
+        plt.ylim(0, 100)
+
+        buffer = io.BytesIO()
+        plt.savefig(buffer, format="png")
+        plt.close()
+        buffer.seek(0)
+
+        send_photo(chat_id, buffer)
+
+    except Exception as e:
+        logging.error(f"Graph error: {e}")
+        send_telegram("⚠ Error building graph.", chat_id)
 
 # =============================
 # WINRATE
@@ -94,7 +226,6 @@ def calculate_winrate(chat_id, tag, last_n=None):
             .order("battle_time", desc=True)
 
         if last_n:
-            # 🔥 Используем range вместо limit (надёжнее)
             query = query.range(0, last_n - 1)
 
         response = query.execute()
@@ -191,6 +322,23 @@ def handle_message(message):
 
             tag = parts[1]
             calculate_winrate(chat_id, tag, last_n=10)
+                    # -------- GRAPH 10 --------
+        elif command == "/graph10":
+            if len(parts) < 2:
+                send_telegram("❌ Usage: /graph10 #TAG", chat_id)
+                return
+
+            tag = parts[1]
+            send_winrate_graph(chat_id, tag, last_n=10)
+
+        # -------- GRAPH ALL --------
+        elif command == "/graph":
+            if len(parts) < 2:
+                send_telegram("❌ Usage: /graph #TAG", chat_id)
+                return
+
+            tag = parts[1]
+            send_winrate_graph(chat_id, tag)
 
         # -------- WINRATE ALL --------
         elif command == "/winrate":
@@ -233,7 +381,29 @@ def handle_message(message):
 
     except Exception as e:
         logging.error(f"Handle message error: {e}")
+# =============================
+# WEBAPP BUTTON
+# =============================
+def send_webapp_button(chat_id, tag):
+    url = f"https://your-app.onrender.com/app?tag={tag}"
 
+    keyboard = {
+        "inline_keyboard": [[
+            {
+                "text": "📊 Open Interactive Dashboard",
+                "web_app": {"url": url}
+            }
+        ]]
+    }
+
+    requests.post(
+        f"https://api.telegram.org/bot{TG_TOKEN}/sendMessage",
+        json={
+            "chat_id": chat_id,
+            "text": f"Interactive stats for {tag}",
+            "reply_markup": keyboard
+        }
+    )
 # =============================
 # USER REGISTER
 # =============================
