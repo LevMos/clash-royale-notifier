@@ -69,6 +69,50 @@ def check_new_battles():
                 "battle_time": battle_time,
                 "result": result
             }).execute()
+            # --- Calculate win streak ---
+            recent_games = supabase.table("battles") \
+                .select("result") \
+                .eq("player_tag", tag) \
+                .order("battle_time", desc=True) \
+                .limit(20) \
+                .execute().data
+
+            streak = 0
+            for g in recent_games:
+                if g["result"]:
+                    streak += 1
+                else:
+                    break
+
+            if streak > 1:
+                streak_line = f"🔥 Win streak: {streak}"
+            else:
+                streak_line = ""
+            
+            # --- Average trophy change last 10 games ---
+            last_10 = supabase.table("battles") \
+                .select("result, battle_time") \
+                .eq("player_tag", tag) \
+                .order("battle_time", desc=True) \
+                .limit(10) \
+                .execute().data
+
+            total_change = 0
+            count = 0
+
+            for g in last_10:
+                battle = next((b for b in battles if b["battleTime"] == g["battle_time"]), None)
+                if battle:
+                    tc = battle["team"][0].get("trophyChange")
+                    if tc is not None:
+                        total_change += tc
+                        count += 1
+
+            if count > 0:
+                avg_change = round(total_change / count, 1)
+                avg_line = f"📊 Avg (10): {avg_change}"
+            else:
+                avg_line = ""
 
             # Отправляем уведомление
             # --- Формируем красивое сообщение ---
@@ -82,23 +126,41 @@ def check_new_battles():
 
                 player_crowns = player.get("crowns", 0)
                 opponent_crowns = opponent.get("crowns", 0)
-
+                trophy_change = player.get("trophyChange", 0)    
                 battle_type = latest.get("type", "Unknown")
+                starting_trophies = player.get("startingTrophies")
+                trophy_change = player.get("trophyChange")
+
+                if trophy_change is not None:
+                    if trophy_change > 0:
+                        trophy_line = f"📈 +{trophy_change} 🏆"
+                    elif trophy_change < 0:
+                        trophy_line = f"📉 {trophy_change} 🏆"
+                    else:
+                        trophy_line = "➖ 0 🏆"
+                else:
+                    trophy_line = "🏆 No trophy change"
+
+                if starting_trophies is not None and trophy_change is not None:
+                    current_trophies = starting_trophies + trophy_change
+                    trophies_total_line = f"🏆 Total: {current_trophies}"
+                else:
+                    trophies_total_line = ""
 
                 if result:
                     status_line = "🏆 <b>Victory</b>"
                 else:
                     status_line = "❌ <b>Defeat</b>"
-
                 message = (
                     f"{status_line}\n\n"
                     f"👤 <b>{player_name}</b>\n"
                     f"🆚 {opponent_name}\n\n"
                     f"📊 {player_crowns} - {opponent_crowns}\n"
-                    f"📈 {player_crowns - opponent_crowns}\n"
+                    f"{trophy_line}\n"
+                    f"{streak_line}\n"
+                    f"{avg_line}\n"
                     f"⚔ {battle_type.capitalize()}"
                 )
-
                 send_telegram(message, chat_id)
 
             except Exception as e:
