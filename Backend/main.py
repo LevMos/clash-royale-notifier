@@ -104,15 +104,21 @@ def check_new_battles():
 
                 player_crowns = player.get("crowns", 0)
                 opponent_crowns = opponent.get("crowns", 0)
-                trophy_change = player.get("trophyChange", 0)    
-                game_mode = latest.get("gameMode", {}).get("name", None)
+
+                # --- Режим игры ---
+                game_mode = latest.get("gameMode", {}).get("name")
                 if game_mode:
                     battle_mode_line = f"⚔ {game_mode}"
                 else:
                     raw_type = latest.get("type", "Unknown")
                     battle_mode_line = f"⚔ {raw_type}"
-                starting_trophies = player.get("startingTrophies")
+
+                # --- Трофеи ---
                 trophy_change = player.get("trophyChange")
+                starting_trophies = player.get("startingTrophies")
+
+                trophy_line = ""
+                trophies_total_line = ""
 
                 if trophy_change is not None:
                     if trophy_change > 0:
@@ -121,28 +127,43 @@ def check_new_battles():
                         trophy_line = f"📉 {trophy_change} 🏆"
                     else:
                         trophy_line = "➖ 0 🏆"
-                else:
-                    trophy_line = " "
 
                     if starting_trophies is not None:
                         current_trophies = starting_trophies + trophy_change
-                        trophies_total_line = f"🏆 Total: {current_trophies}"   
+                        trophies_total_line = f"🏆 Total: {current_trophies}"
 
+                # --- Статус ---
                 if result:
                     status_line = "🏆 <b>Victory</b>"
                 else:
                     status_line = "❌ <b>Defeat</b>"
-                message = (
-                    f"{status_line}\n\n"
-                    f"👤 <b>{player_name}</b>\n"
-                    f"🆚 {opponent_name}\n\n"
-                    f"📊 {player_crowns} - {opponent_crowns}\n"
-                    f"{trophy_line}\n"
-                    f"{trophies_total_line}\n"
-                    f"{streak_line}\n"
-                    f"{avg_line}\n"
-                    f"{battle_mode_line}"
-                )
+
+                # --- Формируем сообщение аккуратно ---
+                lines = [
+                    status_line,
+                    "",
+                    f"👤 <b>{player_name}</b>",
+                    f"🆚 {opponent_name}",
+                    "",
+                    f"📊 {player_crowns} - {opponent_crowns}",
+                ]
+
+                if trophy_line:
+                    lines.append(trophy_line)
+
+                if trophies_total_line:
+                    lines.append(trophies_total_line)
+
+                if streak_line:
+                    lines.append(streak_line)
+
+                if avg_line:
+                    lines.append(avg_line)
+
+                lines.append(battle_mode_line)
+
+                message = "\n".join(lines)
+
                 send_telegram(message, chat_id)
 
             except Exception as e:
@@ -151,7 +172,7 @@ def check_new_battles():
                 logging.info("Battle check completed.")
 
     except Exception as e:
-                    logging.error(f"Battle message build error: {e}")
+                logging.error(f"Battle message build error: {e}")
 
 @app.route("/check", methods=["GET"])
 def run_check():
