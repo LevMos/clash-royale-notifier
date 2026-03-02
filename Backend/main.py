@@ -8,6 +8,7 @@ import matplotlib.pyplot as plt
 from flask import Flask, request
 from dotenv import load_dotenv
 from supabase import create_client, Client
+from datetime import datetime, timedelta, timezone
 # ============================
 # INIT
 # =============================
@@ -173,8 +174,88 @@ def check_new_battles():
 
     except Exception as e:
                 logging.error(f"Battle message build error: {e}")
+def send_daily_reports():
+    try:
+        today = datetime.now(timezone.utc).date()
+        start = datetime.combine(today - timedelta(days=1), datetime.min.time(), tzinfo=timezone.utc)
+        end = datetime.combine(today, datetime.min.time(), tzinfo=timezone.utc)
 
+        users = supabase.table("users") \
+            .select("id, daily_player_tag") \
+            .not_.is_("daily_player_tag", "null") \
+            .execute().data
+
+        if not users:
+            logging.info("No users with daily_player_tag.")
+            return
+
+        for user in users:
+            chat_id = user["id"]
+            tag = user["daily_player_tag"]
+
+            response = supabase.table("battles") \
+                .select("result") \
+                .eq("player_tag", tag) \
+                .gte("battle_time", start.isoformat()) \
+                .lt("battle_time", end.isoformat()) \
+                .order("battle_time", desc=False) \
+                .execute()
+
+            games = response.data
+
+            if not games:
+                continue
+
+            total = len(games)
+            wins = sum(1 for g in games if g["result"])
+            losses = total - wins
+            winrate = round((wins / total) * 100, 1)
+
+            # ---- max streak ----
+            max_streak = 0
+            current = 0
+
+            for g in games:
+                if g["result"]:
+                    current += 1
+                    max_streak = max(max_streak, current)
+                else:
+                    current = 0
+            # ---- статус дня ----
+            if winrate >= 65:
+                status = "🔥 Шторм вырывается в"
+                gif = "https://media3.giphy.com/media/v1.Y2lkPTc5MGI3NjExMzBiamJmcmc1ZWdqcjdsMzQ4YTl0YnIwY2V2a2FrNndkY3dtbGpucyZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/aR6tiTgr9WObz0VB8s/giphy.gif"
+            elif winrate < 45:
+                status = "💀 Шторм щедро раздал кубков соперникам сегодня"
+                gif = "https://media1.giphy.com/media/v1.Y2lkPTc5MGI3NjExMmdzOHQyMDM0b3kxNmJ4NTZqdDdzcHV5dmx2Z2Via2V6bnI1bmhvdSZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/iDCXC1dqH2yu8PCyd8/giphy.gif"
+            else:
+                status = "⚖️ Шторм в копил элик сегодня"
+                gif = "https://media3.giphy.com/media/v1.Y2lkPTc5MGI3NjExeTlpOWZuOTlpajlzaWpobGZzdTRzb2dlMHRycXF5cGl5ZmRmeGc5YyZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/g6qR2iAFg5UAX58Vd5/giphy.gif"
+            message = (
+                f"📊 <b>Daily Report — {tag}</b>\n\n"
+                f"🎮 Games: {total}\n"
+                f"🏆 Wins: {wins}\n"
+                f"❌ Losses: {losses}\n"
+                f"📈 Winrate: {winrate}%\n"
+                f"🔥 Max streak: {max_streak}\n\n"
+                f"{status}"
+            )
+
+            if gif:
+                send_gif(chat_id, gif)
+
+            send_telegram(message, chat_id)
+
+        logging.info("Daily reports sent successfully.")
+
+    except Exception as e:
+        logging.error(f"Daily report error: {e}")
 @app.route("/check", methods=["GET"])
+
+@app.route("/daily", methods=["GET"])
+def run_daily():
+    send_daily_reports()
+    return "Daily reports sent", 200
 def run_check():
     if check_lock.locked():
         return "Already running", 200
@@ -444,6 +525,32 @@ def handle_message(message):
 
             tag = parts[1]
             calculate_winrate(chat_id, tag)
+            # -------- DAILY SET --------
+        elif command == "/dailyset":
+            if len(parts) < 2:
+                send_telegram("❌ Usage: /dailyset #TAG", chat_id)
+                return
+
+            tag = parts[1].upper()
+
+            # проверяем, что пользователь отслеживает этот тег
+            exists = supabase.table("user_players") \
+                .select("id") \
+                .eq("user_id", chat_id) \
+                .eq("player_tag", tag) \
+                .execute()
+
+            if not exists.data:
+                send_telegram("❌ You are not tracking this player. Use /add first.", chat_id)
+                return
+
+            # сохраняем основной тег
+            supabase.table("users") \
+                .update({"daily_player_tag": tag}) \
+                .eq("id", chat_id) \
+                .execute()
+
+            send_telegram(f"✅ Daily report set for {tag}", chat_id)
 
         # -------- REMOVE --------
         elif command == "/remove":
