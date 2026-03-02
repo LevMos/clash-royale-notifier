@@ -177,9 +177,19 @@ def check_new_battles():
 def send_daily_reports():
     try:
         today = datetime.now(timezone.utc).date()
-        start = datetime.combine(today - timedelta(days=1), datetime.min.time(), tzinfo=timezone.utc)
-        end = datetime.combine(today, datetime.min.time(), tzinfo=timezone.utc)
 
+        # --- Проверяем, отправляли ли сегодня ---
+        last_sent = supabase.table("daily_report_log") \
+            .select("report_date") \
+            .order("report_date", desc=True) \
+            .limit(1) \
+            .execute().data
+
+        if last_sent and last_sent[0]["report_date"] == str(today):
+            logging.info("Daily report already sent today.")
+            return
+
+        # --- Получаем пользователей с daily_player_tag ---
         users = supabase.table("users") \
             .select("id, daily_player_tag") \
             .not_.is_("daily_player_tag", "null") \
@@ -189,20 +199,24 @@ def send_daily_reports():
             logging.info("No users with daily_player_tag.")
             return
 
+        # --- Время вчерашнего дня (UTC) ---
+        start = datetime.combine(today - timedelta(days=1), datetime.min.time(), tzinfo=timezone.utc)
+        end = datetime.combine(today, datetime.min.time(), tzinfo=timezone.utc)
+
         for user in users:
             chat_id = user["id"]
             tag = user["daily_player_tag"]
 
+            # --- Получаем игры за вчера ---
             response = supabase.table("battles") \
                 .select("result") \
                 .eq("player_tag", tag) \
                 .gte("battle_time", start.isoformat()) \
                 .lt("battle_time", end.isoformat()) \
-                .order("battle_time", desc=False) \
+                .order("battle_time", asc=True) \
                 .execute()
 
             games = response.data
-
             if not games:
                 continue
 
@@ -211,10 +225,9 @@ def send_daily_reports():
             losses = total - wins
             winrate = round((wins / total) * 100, 1)
 
-            # ---- max streak ----
+            # --- Максимальная серия побед ---
             max_streak = 0
             current = 0
-
             for g in games:
                 if g["result"]:
                     current += 1
@@ -243,14 +256,21 @@ def send_daily_reports():
 
             if gif:
                 send_gif(chat_id, gif)
-
             send_telegram(message, chat_id)
 
+        # --- Логируем факт отправки ---
+        supabase.table("daily_report_log").insert({"report_date": str(today)}).execute()
         logging.info("Daily reports sent successfully.")
 
     except Exception as e:
         logging.error(f"Daily report error: {e}")
 @app.route("/check", methods=["GET"])
+def run_check():
+    if check_lock.locked():
+        return "Already running", 200
+    with check_lock:
+        check_new_battles()
+    return "OK", 200
 
 @app.route("/daily", methods=["GET"])
 def run_daily():
