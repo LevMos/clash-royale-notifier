@@ -9,9 +9,7 @@ from flask import Flask, request
 from dotenv import load_dotenv
 from supabase import create_client, Client
 from datetime import datetime, timedelta, timezone
-# ============================
-# INIT
-# =============================
+
 load_dotenv()
 CR_TOKEN = os.getenv("CR_TOKEN")
 TG_TOKEN = os.getenv("TG_TOKEN")
@@ -23,9 +21,7 @@ from flask import send_from_directory
 
 app = Flask(__name__)
 check_lock = threading.Lock()
-# =============================
-# BATTLE CHECK (CRON)
-# =============================
+
 def check_new_battles():
     try:
         users = supabase.table("user_players").select("user_id, player_tag").execute().data
@@ -42,7 +38,28 @@ def check_new_battles():
             if not battles:
                 continue
 
-            latest = battles[0]
+            for battle in battles:
+                battle_time = battle["battleTime"]
+
+                exists = supabase.table("battles") \
+                    .select("id") \
+                    .eq("player_tag", tag) \
+                    .eq("battle_time", battle_time) \
+                    .execute()
+
+                if exists.data:
+                    continue
+
+                try:
+                    result = battle["team"][0]["crowns"] > battle["opponent"][0]["crowns"]
+                except:
+                    continue
+
+                supabase.table("battles").insert({
+                    "player_tag": tag,
+                    "battle_time": battle_time,
+                    "result": result
+                }).execute()
             battle_time = latest["battleTime"]
             exists = supabase.table("battles") \
                 .select("id") \
@@ -178,7 +195,7 @@ def send_daily_reports():
     try:
         today = datetime.now(timezone.utc).date()
 
-        # --- Проверяем, отправляли ли сегодня ---
+        
         last_sent = supabase.table("daily_report_log") \
             .select("report_date") \
             .order("report_date", desc=True) \
@@ -188,8 +205,7 @@ def send_daily_reports():
         if last_sent and last_sent[0]["report_date"] == str(today):
             logging.info("Daily report already sent today.")
             return
-
-        # --- Получаем пользователей с daily_player_tag ---
+   
         users = supabase.table("users") \
             .select("id, daily_player_tag") \
             .not_.is_("daily_player_tag", "null") \
@@ -199,7 +215,6 @@ def send_daily_reports():
             logging.info("No users with daily_player_tag.")
             return
 
-        # --- Время вчерашнего дня (UTC) ---
         start = datetime.combine(today - timedelta(days=1), datetime.min.time(), tzinfo=timezone.utc)
         end = datetime.combine(today, datetime.min.time(), tzinfo=timezone.utc)
 
@@ -225,7 +240,6 @@ def send_daily_reports():
             losses = total - wins
             winrate = round((wins / total) * 100, 1)
 
-            # --- Максимальная серия побед ---
             max_streak = 0
             current = 0
             for g in games:
@@ -234,7 +248,6 @@ def send_daily_reports():
                     max_streak = max(max_streak, current)
                 else:
                     current = 0
-            # ---- статус дня ----
             if winrate >= 65:
                 status = "🔥 Шторм вырывается в"
                 gif = "https://media3.giphy.com/media/v1.Y2lkPTc5MGI3NjExMzBiamJmcmc1ZWdqcjdsMzQ4YTl0YnIwY2V2a2FrNndkY3dtbGpucyZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/aR6tiTgr9WObz0VB8s/giphy.gif"
@@ -258,7 +271,6 @@ def send_daily_reports():
                 send_gif(chat_id, gif)
             send_telegram(message, chat_id)
 
-        # --- Логируем факт отправки ---
         supabase.table("daily_report_log").insert({"report_date": str(today)}).execute()
         logging.info("Daily reports sent successfully.")
 
@@ -384,7 +396,6 @@ def send_winrate_graph(chat_id, tag, last_n=None):
                 wins += 1
             cumulative_rates.append((wins / i) * 100)
 
-        # --- Строим график ---
         plt.figure()
         plt.plot(range(1, len(cumulative_rates) + 1), cumulative_rates)
         plt.xlabel("Games")
@@ -402,9 +413,7 @@ def send_winrate_graph(chat_id, tag, last_n=None):
     except Exception as e:
         logging.error(f"Graph error: {e}")
         send_telegram("⚠ Error building graph.", chat_id)
-# =============================
-# WINRATE
-# =============================
+
 def calculate_winrate(chat_id, tag, last_n=None):
     try:
         tag = tag.upper()
@@ -454,9 +463,7 @@ def calculate_winrate(chat_id, tag, last_n=None):
     except Exception as e:
         logging.error(f"Winrate error: {e}")
         send_telegram("⚠ Error calculating winrate.", chat_id)
-# =============================
-# TELEGRAM HANDLER
-# =============================
+
 def handle_message(message):
     try:
         chat_id = message["chat"]["id"]
@@ -468,11 +475,9 @@ def handle_message(message):
         parts = text.split()
         command = parts[0]
 
-        # -------- START --------
         if command == "/start":
             send_telegram("👋 Welcome! Use /add #TAG to track a player", chat_id)
 
-        # -------- ADD --------
         elif command == "/add":
             if len(parts) < 2:
                 send_telegram("❌ Usage: /add #TAG", chat_id)
@@ -497,7 +502,6 @@ def handle_message(message):
 
             send_telegram(f"✅ Added {tag}", chat_id)
 
-        # -------- LIST --------
         elif command == "/list":
             response = supabase.table("user_players") \
                 .select("player_tag") \
@@ -511,7 +515,6 @@ def handle_message(message):
                 chat_id
             )
 
-        # -------- WINRATE 10 --------
         elif command == "/winrate10":
             if len(parts) < 2:
                 send_telegram("❌ Usage: /winrate10 #TAG", chat_id)
@@ -519,7 +522,6 @@ def handle_message(message):
 
             tag = parts[1]
             calculate_winrate(chat_id, tag, last_n=10)
-                    # -------- GRAPH 10 --------
         elif command == "/graph10":
             if len(parts) < 2:
                 send_telegram("❌ Usage: /graph10 #TAG", chat_id)
@@ -528,7 +530,6 @@ def handle_message(message):
             tag = parts[1]
             send_winrate_graph(chat_id, tag, last_n=10)
 
-        # -------- GRAPH ALL --------
         elif command == "/graph":
             if len(parts) < 2:
                 send_telegram("❌ Usage: /graph #TAG", chat_id)
@@ -537,7 +538,6 @@ def handle_message(message):
             tag = parts[1]
             send_winrate_graph(chat_id, tag)
 
-        # -------- WINRATE ALL --------
         elif command == "/winrate":
             if len(parts) < 2:
                 send_telegram("❌ Usage: /winrate #TAG", chat_id)
@@ -545,15 +545,12 @@ def handle_message(message):
 
             tag = parts[1]
             calculate_winrate(chat_id, tag)
-            # -------- DAILY SET --------
         elif command == "/dailyset":
             if len(parts) < 2:
                 send_telegram("❌ Usage: /dailyset #TAG", chat_id)
                 return
 
             tag = parts[1].upper()
-
-            # проверяем, что пользователь отслеживает этот тег
             exists = supabase.table("user_players") \
                 .select("id") \
                 .eq("user_id", chat_id) \
@@ -564,7 +561,6 @@ def handle_message(message):
                 send_telegram("❌ You are not tracking this player. Use /add first.", chat_id)
                 return
 
-            # сохраняем основной тег
             supabase.table("users") \
                 .update({"daily_player_tag": tag}) \
                 .eq("id", chat_id) \
@@ -572,7 +568,6 @@ def handle_message(message):
 
             send_telegram(f"✅ Daily report set for {tag}", chat_id)
 
-        # -------- REMOVE --------
         elif command == "/remove":
             if len(parts) < 2:
                 send_telegram("❌ Usage: /remove #TAG", chat_id)
@@ -588,7 +583,6 @@ def handle_message(message):
 
             send_telegram(f"🗑 Removed {tag}", chat_id)
 
-        # -------- HELP --------
         elif command == "/help":
             send_telegram(
                 "/add #TAG\n"
@@ -630,9 +624,7 @@ def send_webapp_button(chat_id, tag):
             "reply_markup": keyboard
         }
     )
-# =============================
-# USER REGISTER
-# =============================
+
 def register_user(chat_id, username=None):
     try:
         existing = supabase.table("users").select("id").eq("id", chat_id).execute()
@@ -644,9 +636,6 @@ def register_user(chat_id, username=None):
             }).execute()
     except Exception as e:
         logging.error(f"Register user error: {e}")
-# =============================
-# ROUTES
-# =============================
 @app.route("/webhook", methods=["POST"])
 def webhook():
     data = request.json
