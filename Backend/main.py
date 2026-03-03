@@ -24,17 +24,18 @@ check_lock = threading.Lock()
 
 def check_new_battles():
     try:
-        users = supabase.table("user_players") \
+        subscriptions = supabase.table("user_players") \
             .select("user_id, player_tag") \
             .execute().data
 
-        if not users:
+        if not subscriptions:
             logging.info("No tracked players.")
             return
 
-        for sub in users:
-            chat_id = sub["user_id"]
-            tag = sub["player_tag"]
+        # ---- Уникальные player_tag ----
+        unique_tags = list(set(sub["player_tag"] for sub in subscriptions))
+
+        for tag in unique_tags:
 
             battles = get_battle_log(tag)
             if not battles:
@@ -57,6 +58,7 @@ def check_new_battles():
                 except:
                     continue
 
+                # ---- Сохраняем бой ----
                 supabase.table("battles").insert({
                     "player_tag": tag,
                     "battle_time": battle_time,
@@ -162,10 +164,20 @@ def check_new_battles():
                     lines.append(battle_mode_line)
 
                     message = "\n".join(lines)
-                    send_telegram(message, chat_id)
 
                 except Exception as e:
                     logging.error(f"Battle message build error: {e}")
+                    continue
+
+                # ---- Отправляем ВСЕМ подписчикам ----
+                subscribers = [
+                    s["user_id"]
+                    for s in subscriptions
+                    if s["player_tag"] == tag
+                ]
+
+                for chat_id in subscribers:
+                    send_telegram(message, chat_id)
 
         logging.info("Battle check completed.")
 
