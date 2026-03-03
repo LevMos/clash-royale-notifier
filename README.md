@@ -1,94 +1,70 @@
-# 🎮 Clash Royale Online Notifier
+🎮 Clash Royale Battle Notifier
 
-Clash Royale Online Notifier is a simple Telegram bot written in Python that monitors a specific player in Clash Royale and sends a notification when a new battle appears in the player's battle log.
+Clash Royale Battle Notifier is a Telegram bot written in Python that monitors a specific player in Clash Royale and sends battle notifications in real time.
 
-This project was created as a minimal, clean, and GitHub-ready mini backend project. It demonstrates working with external APIs, environment variables, logging, and basic automation.
+The bot tracks trophies, win streaks, daily statistics, and can automatically send a daily summary at midnight (GMT).
 
----
+This project demonstrates working with external APIs, background jobs, logging, and cloud deployment.
 
-## 🚀 Features
+🚀 Features
 
-- Checks player battle log using the official Clash Royale Developer API
-- Sends Telegram notification when a new battle is detected
-- Uses environment variables (.env) to protect sensitive data
-- Simple and clean project structure
-- Ready to be deployed locally or extended further
+🔍 Monitors player battle log via Clash Royale Developer API
+📩 Sends formatted Telegram notifications for each new battle
+🏆 Shows trophy change and total trophies
+🔥 Tracks win streak
+📊 Generates daily player statistics
+🌙 Automatically sends daily summary at 00:00 GMT
+🎞 Can send GIFs for good / bad days
+☁ Ready for deployment on Render
 
----
+🛠 Technologies Used
 
-## 🛠 Technologies Used
+Python 3
+requests
+python-dotenv
+Telegram Bot API
+Clash Royale Developer API
+Supabase (optional, for persistence)
+APScheduler (for daily tasks)
 
-- Python 3
-- requests
-- python-dotenv
-- Telegram Bot API
-- Clash Royale Developer API
+🔑 Setup Guide
 
----
+1️⃣ Clone repository
+git clone https://github.com/LevMos/clash-royale-notifier.git
+cd clash-royale-notifier
 
-## 📦 Project Structure
+2️⃣ Create virtual environment
+python3 -m venv venv
+source venv/bin/activate
+(Windows: venv\Scripts\activate)
 
-clash-royale-notifier/
-│
-├── bot.py
-├── .env.example
-├── requirements.txt
-├── README.md
-└── .gitignore
+3️⃣ Install dependencies
+pip install -r requirements.txt
 
----
+4️⃣ Configure environment variables
+Create .env file:
 
-## 🔑 Setup Guide
+CR_TOKEN=your_clash_api_token
+TG_TOKEN=your_telegram_bot_token
+CHAT_ID=your_chat_id
+PLAYER_TAG=%23PLAYER_TAG
+CHECK_INTERVAL=120
 
-### 1. Clone the repository
+Make sure your Clash Royale API key has the correct public IP whitelisted.
 
-git clone https://github.com/LevMos/clash-royale-notifier.git  
-cd clash-royale-notifier  
+▶ Running the Bot
+python Backend/main.py
 
-### 2. Create a virtual environment
+The bot checks battles every CHECK_INTERVAL seconds and sends a Telegram message when a new battle appears.
 
-python3 -m venv venv  
-source venv/bin/activate  
+If scheduler is enabled, it will also send a daily statistics message at midnight (GMT).
 
-(On Windows use: venv\Scripts\activate)
+⚠ Important Notes
 
-### 3. Install dependencies
+Clash Royale API keys work only with whitelisted public IPs
+The bot detects new battles (not live matches)
+Never commit your .env file
+If your server IP changes (Render), update it in the Clash Developer Portal
 
-pip install -r requirements.txt  
-
-### 4. Configure environment variables
-
-Create a `.env` file in the root directory and add the following variables:
-
-CR_TOKEN=your_clash_api_token  
-TG_TOKEN=your_telegram_bot_token  
-CHAT_ID=your_chat_id  
-PLAYER_TAG=%23PLAYER_TAG  
-CHECK_INTERVAL=120  
-
-Make sure your Clash Royale API key is configured with the correct public IP address of the machine running the bot.
-
----
-
-## ▶ Running the Bot
-
-Activate your virtual environment and run:
-
-python bot.py  
-
-The bot will check the player's battle log every 120 seconds (or the value set in CHECK_INTERVAL) and send a Telegram message if a new battle is detected.
-
----
-
-## ⚠ Important Notes
-
-- The Clash Royale API key works only from whitelisted public IP addresses.
-- The bot detects new battles, not real-time online status.
-- Never commit your .env file to GitHub.
-- If your public IP changes, you must update it in the Clash Royale Developer Portal.
-
----
-
-## 📄 License
-
-This project is licensed under the MIT License.
+📄 License
+MIT License
