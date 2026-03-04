@@ -193,12 +193,6 @@ def check_new_battles():
 def send_daily_reports():
     try:
         today = datetime.now(timezone.utc).date()
-        now = datetime.now(timezone.utc)
-
-        if not (now.hour == 0 and now.minute < 5):
-            logging.info("Not daily time window.")
-            return
-                        
         users = supabase.table("users") \
             .select("id, daily_player_tag") \
             .not_.is_("daily_player_tag", "null") \
@@ -276,7 +270,7 @@ def send_daily_reports():
 
     except Exception as e:
         logging.error(f"Daily report error: {e}")
-        
+
 @app.route("/check", methods=["GET"])
 def run_check():
     if check_lock.locked():
