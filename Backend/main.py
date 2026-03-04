@@ -193,26 +193,17 @@ def check_new_battles():
 def send_daily_reports():
     try:
         today = datetime.now(timezone.utc).date()
+        now = datetime.now(timezone.utc)
 
+        if not (now.hour == 0 and now.minute < 5):
+            logging.info("Not daily time window.")
+            return
                         
         users = supabase.table("users") \
             .select("id, daily_player_tag") \
             .not_.is_("daily_player_tag", "null") \
             .execute().data
         logging.info("Daily endpoint triggered")
-        for user in users:
-            chat_id = user["id"]
-            tag = user["daily_player_tag"]
-
-        # --- Проверка отправляли ли этому пользователю сегодня ---
-            already_sent = supabase.table("daily_report_log") \
-                .select("id") \
-                .eq("user_id", chat_id) \
-                .eq("report_date", str(today)) \
-                .execute().data
-
-            if already_sent:
-                continue
 
 
         if not users:
@@ -274,21 +265,34 @@ def send_daily_reports():
             if gif:
                 send_gif(chat_id, gif)
             send_telegram(message, chat_id)
-
-        supabase.table("daily_report_log").insert({
-            "user_id": chat_id,
-            "report_date": str(today)
-        }).execute()
+            supabase.table("daily_report_log").upsert(
+                {
+                    "user_id": chat_id,
+                    "report_date": str(today)
+                },
+                on_conflict="user_id,report_date"
+            ).execute()
         logging.info("Daily reports sent successfully.")
 
     except Exception as e:
         logging.error(f"Daily report error: {e}")
+        
 @app.route("/check", methods=["GET"])
+def run_check():
+    if check_lock.locked():
+        return "Already running", 200
+
+    with check_lock:
+        check_new_battles()
+
+    return "OK", 200
+
 
 @app.route("/daily", methods=["GET"])
 def run_daily():
     send_daily_reports()
     return "Daily reports sent", 200
+
 def run_check():
     if check_lock.locked():
         return "Already running", 200
