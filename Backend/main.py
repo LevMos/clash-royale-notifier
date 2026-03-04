@@ -193,8 +193,13 @@ def check_new_battles():
 def send_daily_reports():
     try:
         today = datetime.now(timezone.utc).date()
+
+                        
+        users = supabase.table("users") \
+            .select("id, daily_player_tag") \
+            .not_.is_("daily_player_tag", "null") \
+            .execute().data
         logging.info("Daily endpoint triggered")
-        
         for user in users:
             chat_id = user["id"]
             tag = user["daily_player_tag"]
@@ -208,11 +213,7 @@ def send_daily_reports():
 
             if already_sent:
                 continue
-                
-        users = supabase.table("users") \
-            .select("id, daily_player_tag") \
-            .not_.is_("daily_player_tag", "null") \
-            .execute().data
+
 
         if not users:
             logging.info("No users with daily_player_tag.")
