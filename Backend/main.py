@@ -220,7 +220,7 @@ def send_daily_reports():
                 .eq("player_tag", tag) \
                 .gte("battle_time", start.isoformat()) \
                 .lt("battle_time", end.isoformat()) \
-                .order("battle_time", asc=True) \
+                .order("battle_time") \
                 .execute()
 
             games = response.data
