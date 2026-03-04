@@ -59,12 +59,19 @@ def check_new_battles():
                     continue
 
                 # ---- Сохраняем бой ----
+                raw_time = battle["battleTime"]
+
+                parsed_time = datetime.strptime(
+                    raw_time, "%Y%m%dT%H%M%S.%fZ"
+                ).replace(tzinfo=timezone.utc)
+
+                battle_time = parsed_time.isoformat()
+
                 supabase.table("battles").insert({
                     "player_tag": tag,
                     "battle_time": battle_time,
                     "result": result
                 }).execute()
-
                 # ---- СТРИК ----
                 recent_games = supabase.table("battles") \
                     .select("result") \
@@ -186,18 +193,22 @@ def check_new_battles():
 def send_daily_reports():
     try:
         today = datetime.now(timezone.utc).date()
-
+        logging.info("Daily endpoint triggered")
         
-        last_sent = supabase.table("daily_report_log") \
-            .select("report_date") \
-            .order("report_date", desc=True) \
-            .limit(1) \
-            .execute().data
+        for user in users:
+            chat_id = user["id"]
+            tag = user["daily_player_tag"]
 
-        if last_sent and last_sent[0]["report_date"] == str(today):
-            logging.info("Daily report already sent today.")
-            return
-   
+        # --- Проверка отправляли ли этому пользователю сегодня ---
+            already_sent = supabase.table("daily_report_log") \
+                .select("id") \
+                .eq("user_id", chat_id) \
+                .eq("report_date", str(today)) \
+                .execute().data
+
+            if already_sent:
+                continue
+                
         users = supabase.table("users") \
             .select("id, daily_player_tag") \
             .not_.is_("daily_player_tag", "null") \
@@ -263,18 +274,15 @@ def send_daily_reports():
                 send_gif(chat_id, gif)
             send_telegram(message, chat_id)
 
-        supabase.table("daily_report_log").insert({"report_date": str(today)}).execute()
+        supabase.table("daily_report_log").insert({
+            "user_id": chat_id,
+            "report_date": str(today)
+        }).execute()
         logging.info("Daily reports sent successfully.")
 
     except Exception as e:
         logging.error(f"Daily report error: {e}")
 @app.route("/check", methods=["GET"])
-def run_check():
-    if check_lock.locked():
-        return "Already running", 200
-    with check_lock:
-        check_new_battles()
-    return "OK", 200
 
 @app.route("/daily", methods=["GET"])
 def run_daily():
