@@ -23,6 +23,63 @@ from flask import send_from_directory
 app = Flask(__name__)
 check_lock = threading.Lock()
 
+THREE_ZERO_MESSAGES = [
+    "💥 Легчайшая для величайшого",
+    "👑 Без шансов",
+    "⚡ ez 3-0",
+    "🏆 Идеальная игра",
+    "🔥 Соперника испепилила спарки ШТОРМА"
+]
+
+ZERO_THREE_MESSAGES = [
+    "💀 это минус вайбик (и кубки)",
+    "🪦 Проебуньки от штормуньки",
+    "🤕 Может поменяем колоду?",
+    "📉 Больно смотреть",
+    "🚑 Шторм бы гордился.....и беймил"
+]
+
+WIN_STREAK_MESSAGES = {
+    3: [
+        "⚡ Победная серия начинается",
+        "🔥 Скоро разбор от 5-ти кратного чемпиона",
+        "🎯 3 победы - он идет по стопам штормика ",
+    ],
+    5: [
+        "🔥 Легчайшая 5я победа",
+        "🚀 Как же он силен",
+        "💪 Сегодня арена его",
+    ],
+    7: [
+        "🚀 Серия становится пугающей",
+        "👀 Перепсываем колоду",
+        "⚔ Это ради митер Л?",
+    ],
+    10: [
+        "👑 ПОЛНОЕ УНИЧТОЖЕНИЕ",
+        "🏆 ШТОООООООРМ",
+        "💀 Соперники могут расходиться",
+    ]
+}
+
+LOSE_STREAK_MESSAGES = {
+    3: [
+        "🫠 Сегодня карты явно против него",
+        "🤕 Допустимый урон",
+        "📉 Отвлекли немного",
+    ],
+    5: [
+        "💀 По беймрейту выиграл зато",
+        "🪦 Кто-то забыл как побеждать",
+        "🥶 Неприятный человек попался",
+    ],
+    8: [
+        "🚑 После такого удаляют клеш...",
+        "🧯 Че закибербулили тебя да?",
+        "😭 МИМИМИМИМИМИМИМИМИМИ",
+    ]
+}
+
 good_results = [
     (
         "🔥 Шторм разрывает арену сегодня",
@@ -86,6 +143,14 @@ def get_player_name(tag):
 
     return data.get("name")
 
+def get_random_streak_message(streak, pool):
+    eligible = [k for k in pool.keys() if streak >= k]
+
+    if not eligible:
+        return ""
+
+    level = max(eligible)
+    return random.choice(pool[level])
 def check_new_battles():
     try:
         subscriptions = supabase.table("user_players") \
@@ -157,32 +222,30 @@ def check_new_battles():
                             lose_streak += 1
                         else:
                             break
+                special_line = ""
+
+                if player_crowns == 3 and opponent_crowns == 0:
+                    special_line = random.choice(THREE_ZERO_MESSAGES)
+
+                elif player_crowns == 0 and opponent_crowns == 3:
+                    special_line = random.choice(ZERO_THREE_MESSAGES)
 
                 streak_line = ""
                 meme_line = ""
 
-                # ---- WIN STREAK MEMES ----
-                if win_streak >= 10:
-                    meme_line = "👑 ПОЛНОЕ УНИЧТОЖЕНИЕ"
-                elif win_streak >= 7:
-                    meme_line = "🚀 Его невозможно остановить"
-                elif win_streak >= 5:
-                    meme_line = "🔥 Достойный наследник ШТОРМА"
-                elif win_streak >= 3:
-                    meme_line = "⚡ Победная серия начинается"
-
                 if win_streak > 1:
                     streak_line = f"🔥 Win streak: {win_streak}"
-                # ---- LOSE STREAK MEMES ----
-                if lose_streak >= 8:
-                    meme_line = "🚑 После такого сносят клеш..."
-                elif lose_streak >= 5:
-                    meme_line = "💀 Беймят невероятно"
-                elif lose_streak >= 3:
-                    meme_line = "🫠 Сегодня карты явно против него"
+                    meme_line = get_random_streak_message(win_streak, WIN_STREAK_MESSAGES)
 
-                if lose_streak > 1:
+                elif lose_streak > 1:
                     streak_line = f"💀 Lose streak: {lose_streak}"
+                    meme_line = get_random_streak_message(lose_streak, LOSE_STREAK_MESSAGES)
+                if random.random() < 0.03:
+                    meme_line = random.choice([
+                        "🤖 Бот подозревает использование чит-кодов",
+                        "👀 Supercell уже наблюдает",
+                        "🧠 IQ этой колоды явно выше среднего"
+                    ])
                 # ---- Средний gain за 10 ----
                 last_10 = supabase.table("battles") \
                     .select("battle_time") \
@@ -216,6 +279,8 @@ def check_new_battles():
                     opponent_name = opponent.get("name", "Unknown")
                     player_name = player.get("name", "Unknown")
                     opponent_name = opponent.get("name", "Unknown")
+                    player_trophies = battle["team"][0].get("startingTrophies", 0)
+                    opponent_trophies = battle["opponent"][0].get("startingTrophies", 0)
 
                     # --- Проверяем ник в базе ---
                     user_record = supabase.table("users") \
@@ -263,8 +328,8 @@ def check_new_battles():
                     lines = [
                         status_line,
                         "",
-                        f"👤 <b>{player_name}</b>",
-                        f"🆚 {opponent_name}",
+                        f"👤 <b>{player_name}</b> ({player_trophies}🏆)"
+                        f"🆚 {opponent_name} ({opponent_trophies}🏆)"
                         "",
                         f"📊 {player_crowns} - {opponent_crowns}",
                     ]
@@ -279,6 +344,8 @@ def check_new_battles():
                         lines.append(meme_line)
                     if avg_line:
                         lines.append(avg_line)
+                    if special_line:
+                        lines.append(special_line)
 
                     lines.append(battle_mode_line)
 
