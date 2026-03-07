@@ -4,6 +4,7 @@ import requests
 import urllib.parse
 import threading
 import io
+import random
 import matplotlib.pyplot as plt
 from flask import Flask, request
 from dotenv import load_dotenv
@@ -21,6 +22,69 @@ from flask import send_from_directory
 
 app = Flask(__name__)
 check_lock = threading.Lock()
+
+good_results = [
+    (
+        "🔥 Шторм разрывает арену сегодня",
+        "https://media3.giphy.com/media/v1.Y2lkPTc5MGI3NjExMzBiamJmcmc1ZWdqcjdsMzQ4YTl0YnIwY2V2a2FrNndkY3dtbGpucyZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/aR6tiTgr9WObz0VB8s/giphy.gif"
+    ),
+    (
+        "⚡ Сегодня соперники просто не успевали ставить карты",
+        "https://media.giphy.com/media/v1.Y2lkPWVjZjA1ZTQ3M3dtdDVqNG5pZmF0Mndqb202Z2EzcHNiZGpxc3FnaDJvajN1YTVpYyZlcD12MV9zdGlja2Vyc19zZWFyY2gmY3Q9cw/U3I2Eko8KQfWKxMMqP/giphy.gif"
+    ),
+    (
+        "🏆 Арена сегодня принадлежала Шторму",
+        "https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExOW5xczVxaXpsbWZmbGZleGgzZ2ljYmYxMGQ0dHM1emRuMmt2YWMweCZlcD12MV9zdGlja2Vyc19zZWFyY2gmY3Q9cw/ky9bxpYbxyuFZJEmwX/giphy.gif"
+    )
+]
+
+bad_results = [
+    (
+        "💀 Шторм щедро раздал кубков соперникам сегодня",
+        "https://media1.giphy.com/media/v1.Y2lkPTc5MGI3NjExMmdzOHQyMDM0b3kxNmJ4NTZqdDdzcHV5dmx2Z2Via2V6bnI1bmhvdSZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/iDCXC1dqH2yu8PCyd8/giphy.gif"
+    ),
+    (
+        "🪦 Сегодня арена была безжалостна",
+        "https://media.giphy.com/media/v1.Y2lkPWVjZjA1ZTQ3NTl3anY2c2FhbDZ1djV0aXB5MGE2YTFvNHZraHloanIyOHhhM3h2YiZlcD12MV9naWZzX3NlYXJjaCZjdD1n/wka72YWgDbNlCa7OeP/giphy.gif"
+    ),
+    (
+        "🥀 День был тяжёлый…",
+        "https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExbmh2czVjc2VjMTN4M3J5aGFxcjRudGxhbTA3ZHhvMmVodXBvM3p2diZlcD12MV9naWZzX3NlYXJjaCZjdD1n/EBeKznBAtxaH9uChgk/giphy.gif"
+    )
+]
+
+mid_results = [
+    (
+        "⚖️ Шторм копил эликсир сегодня",
+        "https://media3.giphy.com/media/v1.Y2lkPTc5MGI3NjExeTlpOWZuOTlpajlzaWpobGZzdTRzb2dlMHRycXF5cGl5ZmRmeGc5YyZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/g6qR2iAFg5UAX58Vd5/giphy.gif"
+    ),
+    (
+        "😐 День прошёл без особых потрясений",
+        "https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExbXZ1NjBhenl6dmJ4MDJ6OTRoajh6Zmo2aXAzZXdpd2c0YWd2aWFxaCZlcD12MV9naWZzX3NlYXJjaCZjdD1n/480kfa3gt1vO04dYzW/giphy.gif"
+    ),
+    (
+        "🎮 Рабочий день на арене",
+        "https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExc3huM21mMmZ0NmJ1OWNkbm13NGxtZHdjeWZwdmkwYmR4M28ycndrcyZlcD12MV9naWZzX3NlYXJjaCZjdD1n/dGiuYXO8T9YljuwcNn/giphy.gif"
+    )
+]
+
+def get_player_name(tag):
+    tag = tag.replace("#", "")
+
+    url = f"https://proxy.royaleapi.dev/v1/players/%23{tag}"
+
+    headers = {
+        "Authorization": f"Bearer {CR_TOKEN}"
+    }
+
+    r = requests.get(url, headers=headers)
+
+    if r.status_code != 200:
+        return None
+
+    data = r.json()
+
+    return data.get("name")
 
 def check_new_battles():
     try:
@@ -79,16 +143,46 @@ def check_new_battles():
                     .order("battle_time", desc=True) \
                     .limit(20) \
                     .execute().data
+                win_streak = 0
+                lose_streak = 0
 
-                streak = 0
                 for g in recent_games:
                     if g["result"]:
-                        streak += 1
+                        if lose_streak == 0:
+                            win_streak += 1
+                        else:
+                            break
                     else:
-                        break
+                        if win_streak == 0:
+                            lose_streak += 1
+                        else:
+                            break
 
-                streak_line = f"🔥 Win streak: {streak}" if streak > 1 else ""
+                streak_line = ""
+                meme_line = ""
 
+                # ---- WIN STREAK MEMES ----
+                if win_streak >= 10:
+                    meme_line = "👑 ПОЛНОЕ УНИЧТОЖЕНИЕ"
+                elif win_streak >= 7:
+                    meme_line = "🚀 Его невозможно остановить"
+                elif win_streak >= 5:
+                    meme_line = "🔥 Достойный наследник ШТОРМА"
+                elif win_streak >= 3:
+                    meme_line = "⚡ Победная серия начинается"
+
+                if win_streak > 1:
+                    streak_line = f"🔥 Win streak: {win_streak}"
+                # ---- LOSE STREAK MEMES ----
+                if lose_streak >= 8:
+                    meme_line = "🚑 После такого сносят клеш..."
+                elif lose_streak >= 5:
+                    meme_line = "💀 Беймят невероятно"
+                elif lose_streak >= 3:
+                    meme_line = "🫠 Сегодня карты явно против него"
+
+                if lose_streak > 1:
+                    streak_line = f"💀 Lose streak: {lose_streak}"
                 # ---- Средний gain за 10 ----
                 last_10 = supabase.table("battles") \
                     .select("battle_time") \
@@ -120,7 +214,23 @@ def check_new_battles():
 
                     player_name = player.get("name", "Unknown")
                     opponent_name = opponent.get("name", "Unknown")
+                    player_name = player.get("name", "Unknown")
+                    opponent_name = opponent.get("name", "Unknown")
 
+                    # --- Проверяем ник в базе ---
+                    user_record = supabase.table("users") \
+                        .select("player_name") \
+                        .eq("daily_player_tag", tag) \
+                        .execute().data
+
+                    if user_record:
+                        stored_name = user_record[0]["player_name"]
+
+                        if stored_name != player_name:
+                            supabase.table("users") \
+                                .update({"player_name": player_name}) \
+                                .eq("daily_player_tag", tag) \
+                                .execute()
                     player_crowns = player.get("crowns", 0)
                     opponent_crowns = opponent.get("crowns", 0)
 
@@ -165,6 +275,8 @@ def check_new_battles():
                         lines.append(trophies_total_line)
                     if streak_line:
                         lines.append(streak_line)
+                    if meme_line:
+                        lines.append(meme_line)
                     if avg_line:
                         lines.append(avg_line)
 
@@ -194,7 +306,7 @@ def send_daily_reports():
     try:
         today = datetime.now(timezone.utc).date()
         users = supabase.table("users") \
-            .select("id, daily_player_tag") \
+            .select("id, daily_player_tag, player_name") \
             .not_.is_("daily_player_tag", "null") \
             .execute().data
         logging.info("Daily endpoint triggered")
@@ -210,6 +322,7 @@ def send_daily_reports():
         for user in users:
             chat_id = user["id"]
             tag = user["daily_player_tag"]
+            name = user.get("player_name") or tag
 
             # --- Получаем игры за вчера ---
             response = supabase.table("battles") \
@@ -238,16 +351,18 @@ def send_daily_reports():
                 else:
                     current = 0
             if winrate >= 65:
-                status = "🔥 Шторм вырывается в"
-                gif = "https://media3.giphy.com/media/v1.Y2lkPTc5MGI3NjExMzBiamJmcmc1ZWdqcjdsMzQ4YTl0YnIwY2V2a2FrNndkY3dtbGpucyZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/aR6tiTgr9WObz0VB8s/giphy.gif"
+                status, gif = random.choice(good_results)
+
             elif winrate < 45:
-                status = "💀 Шторм щедро раздал кубков соперникам сегодня"
-                gif = "https://media1.giphy.com/media/v1.Y2lkPTc5MGI3NjExMmdzOHQyMDM0b3kxNmJ4NTZqdDdzcHV5dmx2Z2Via2V6bnI1bmhvdSZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/iDCXC1dqH2yu8PCyd8/giphy.gif"
+                status, gif = random.choice(bad_results)
+
             else:
-                status = "⚖️ Шторм в копил элик сегодня"
-                gif = "https://media3.giphy.com/media/v1.Y2lkPTc5MGI3NjExeTlpOWZuOTlpajlzaWpobGZzdTRzb2dlMHRycXF5cGl5ZmRmeGc5YyZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/g6qR2iAFg5UAX58Vd5/giphy.gif"
+                status, gif = random.choice(mid_results)
+
+            if gif:
+                send_gif(chat_id, gif)
             message = (
-                f"📊 <b>Daily Report — {tag}</b>\n\n"
+                f"📊 <b>Daily Report — {name}</b>\n\n"
                 f"🎮 Games: {total}\n"
                 f"🏆 Wins: {wins}\n"
                 f"❌ Losses: {losses}\n"
@@ -256,8 +371,6 @@ def send_daily_reports():
                 f"{status}"
             )
 
-            if gif:
-                send_gif(chat_id, gif)
             send_telegram(message, chat_id)
             supabase.table("daily_report_log").upsert(
                 {
@@ -286,15 +399,6 @@ def run_check():
 def run_daily():
     send_daily_reports()
     return "Daily reports sent", 200
-
-def run_check():
-    if check_lock.locked():
-        return "Already running", 200
-
-    with check_lock:
-        check_new_battles()
-
-    return "OK", 200
 
 logging.basicConfig(
     level=logging.INFO,
@@ -559,13 +663,17 @@ def handle_message(message):
             if not exists.data:
                 send_telegram("❌ You are not tracking this player. Use /add first.", chat_id)
                 return
+            player_name = get_player_name(tag)
 
             supabase.table("users") \
-                .update({"daily_player_tag": tag}) \
+                .update({
+                    "daily_player_tag": tag,
+                    "player_name": player_name
+                }) \
                 .eq("id", chat_id) \
                 .execute()
-
-            send_telegram(f"✅ Daily report set for {tag}", chat_id)
+            display = player_name if player_name else tag
+            send_telegram(f"✅ Daily report set for {display}", chat_id)
 
         elif command == "/remove":
             if len(parts) < 2:
