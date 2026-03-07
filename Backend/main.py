@@ -11,6 +11,7 @@ from dotenv import load_dotenv
 from supabase import create_client, Client
 from datetime import datetime, timedelta, timezone
 
+today = datetime.utcnow().date()
 load_dotenv()
 CR_TOKEN = os.getenv("CR_TOKEN")
 TG_TOKEN = os.getenv("TG_TOKEN")
@@ -222,13 +223,6 @@ def check_new_battles():
                             lose_streak += 1
                         else:
                             break
-                special_line = ""
-
-                if player_crowns == 3 and opponent_crowns == 0:
-                    special_line = random.choice(THREE_ZERO_MESSAGES)
-
-                elif player_crowns == 0 and opponent_crowns == 3:
-                    special_line = random.choice(ZERO_THREE_MESSAGES)
 
                 streak_line = ""
                 meme_line = ""
@@ -298,6 +292,13 @@ def check_new_battles():
                                 .execute()
                     player_crowns = player.get("crowns", 0)
                     opponent_crowns = opponent.get("crowns", 0)
+                    special_line = ""
+
+                    if player_crowns == 3 and opponent_crowns == 0:
+                        special_line = random.choice(THREE_ZERO_MESSAGES)
+
+                    elif player_crowns == 0 and opponent_crowns == 3:
+                        special_line = random.choice(ZERO_THREE_MESSAGES)
 
                     game_mode = battle.get("gameMode", {}).get("name")
                     if game_mode:
@@ -328,8 +329,8 @@ def check_new_battles():
                     lines = [
                         status_line,
                         "",
-                        f"👤 <b>{player_name}</b> ({player_trophies}🏆)"
-                        f"🆚 {opponent_name} ({opponent_trophies}🏆)"
+                        f"👤 <b>{player_name}</b> ({player_trophies}🏆)",
+                        f"🆚 {opponent_name} ({opponent_trophies}🏆)",
                         "",
                         f"📊 {player_crowns} - {opponent_crowns}",
                     ]
