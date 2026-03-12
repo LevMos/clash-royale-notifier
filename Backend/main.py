@@ -11,7 +11,6 @@ from dotenv import load_dotenv
 from supabase import create_client, Client
 from datetime import datetime, timedelta, timezone
 
-today = datetime.utcnow().date()
 load_dotenv()
 CR_TOKEN = os.getenv("CR_TOKEN")
 TG_TOKEN = os.getenv("TG_TOKEN")
@@ -23,15 +22,36 @@ from flask import send_from_directory
 
 app = Flask(__name__)
 check_lock = threading.Lock()
-
+NIGHT_WIN_MESSAGES = [
+    "🌙 Ночная победа",
+    "🌙 Ночные катки приносят победу",
+    "🦉 Кто-то играет слишком поздно",
+    "🌌 Арена не спит"
+]
+NIGHT_LOSE_MESSAGES = [
+    "😴 Похоже пора спать",
+    "🌙 Ночные катки не задались",
+    "🛌 Может лучше завтра",
+    "🌌 Арена ночью беспощадна"
+]
+FIRST_GAME_WIN = [
+    "🌅 Отличное начало дня",
+    "☀ День начинается с победы",
+    "🔥 Первая кровь на арене сегодня"
+]
+FIRST_GAME_LOSE = [
+    "☕ День начинается тяжело",
+    "😴 Нужно ещё проснуться",
+    "📉 Не самое лучшее начало дня"
+]
 THREE_ZERO_MESSAGES = [
     "💥 Легчайшая для величайшого",
     "👑 Без шансов",
     "⚡ ez 3-0",
     "🏆 Идеальная игра",
     "🔥 Соперника испепилила спарки ШТОРМА"
+    "🤑 Мое имя Дорого, фамилия Богато"
 ]
-
 ZERO_THREE_MESSAGES = [
     "💀 это минус вайбик (и кубки)",
     "🪦 Проебуньки от штормуньки",
@@ -39,7 +59,6 @@ ZERO_THREE_MESSAGES = [
     "📉 Больно смотреть",
     "🚑 Шторм бы гордился.....и беймил"
 ]
-
 WIN_STREAK_MESSAGES = {
     3: [
         "⚡ Победная серия начинается",
@@ -62,7 +81,6 @@ WIN_STREAK_MESSAGES = {
         "💀 Соперники могут расходиться",
     ]
 }
-
 LOSE_STREAK_MESSAGES = {
     3: [
         "🫠 Сегодня карты явно против него",
@@ -80,7 +98,6 @@ LOSE_STREAK_MESSAGES = {
         "😭 МИМИМИМИМИМИМИМИМИМИ",
     ]
 }
-
 good_results = [
     (
         "🔥 Шторм разрывает арену сегодня",
@@ -95,7 +112,6 @@ good_results = [
         "https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExOW5xczVxaXpsbWZmbGZleGgzZ2ljYmYxMGQ0dHM1emRuMmt2YWMweCZlcD12MV9zdGlja2Vyc19zZWFyY2gmY3Q9cw/ky9bxpYbxyuFZJEmwX/giphy.gif"
     )
 ]
-
 bad_results = [
     (
         "💀 Шторм щедро раздал кубков соперникам сегодня",
@@ -110,7 +126,6 @@ bad_results = [
         "https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExbmh2czVjc2VjMTN4M3J5aGFxcjRudGxhbTA3ZHhvMmVodXBvM3p2diZlcD12MV9naWZzX3NlYXJjaCZjdD1n/EBeKznBAtxaH9uChgk/giphy.gif"
     )
 ]
-
 mid_results = [
     (
         "⚖️ Шторм копил эликсир сегодня",
@@ -196,6 +211,26 @@ def check_new_battles():
                 ).replace(tzinfo=timezone.utc)
 
                 battle_time = parsed_time.isoformat()
+                battle_hour = parsed_time.hour
+                today = parsed_time.date()
+
+                today_battles = supabase.table("battles") \
+                    .select("id") \
+                    .eq("player_tag", tag) \
+                    .gte("battle_time", today.isoformat()) \
+                    .limit(1) \
+                    .execute().data
+
+                is_first_game = len(today_battles) == 0
+                is_night = battle_hour >= 0 and battle_hour < 6
+
+                night_line = ""
+
+                if is_night:
+                    if result:
+                        night_line = random.choice(NIGHT_WIN_MESSAGES)
+                    else:
+                        night_line = random.choice(NIGHT_LOSE_MESSAGES)
 
                 supabase.table("battles").insert({
                     "player_tag": tag,
@@ -309,6 +344,17 @@ def check_new_battles():
                     trophy_change = player.get("trophyChange")
                     starting_trophies = player.get("startingTrophies")
 
+                    first_game_line = ""
+
+                    if is_first_game:
+                        if result:
+                            first_game_line = random.choice(FIRST_GAME_WIN)
+                        else:
+                            first_game_line = random.choice(FIRST_GAME_LOSE)
+
+                    if night_line:
+                        lines.append(night_line)
+
                     trophy_line = ""
                     trophies_total_line = ""
 
@@ -347,6 +393,8 @@ def check_new_battles():
                         lines.append(avg_line)
                     if special_line:
                         lines.append(special_line)
+                    if first_game_line:
+                        lines.append(first_game_line)
 
                     lines.append(battle_mode_line)
 
