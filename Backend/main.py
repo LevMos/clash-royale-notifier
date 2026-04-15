@@ -567,17 +567,22 @@ def send_gif(chat_id, gif_url):
 # =============================
 def get_battle_log(player_tag):
     try:
-        encoded_tag = urllib.parse.quote(player_tag)
-        url = f"https://proxy.royaleapi.dev/v1/players/{encoded_tag}/battlelog"
+        tag = player_tag.replace("#", "")
+        url = f"https://proxy.royaleapi.dev/v1/players/%23{tag}/battlelog"
+
+        logging.info(f"REQUEST → {url}")
+
         response = requests.get(url, timeout=10)
+
+        logging.info(f"RESPONSE → {response.status_code}")
 
         if response.status_code == 200:
             return response.json()
 
-        logging.error(f"{player_tag} | Clash API error: {response.status_code}")
+        logging.error(f"{player_tag} | Proxy error: {response.status_code} | {response.text}")
 
     except Exception as e:
-        logging.error(f"Clash API request failed: {e}")
+        logging.error(f"Proxy request failed: {e}")
 
     return []
 # ============================
