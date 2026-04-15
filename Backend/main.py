@@ -146,11 +146,8 @@ def get_player_name(tag):
 
     url = f"https://proxy.royaleapi.dev/v1/players/%23{tag}"
 
-    headers = {
-        "Authorization": f"Bearer {CR_TOKEN}"
-    }
 
-    r = requests.get(url, headers=headers)
+    r = requests.get(url, timeout=10)
 
     if r.status_code != 200:
         return None
