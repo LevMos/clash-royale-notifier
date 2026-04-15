@@ -570,11 +570,9 @@ def send_gif(chat_id, gif_url):
 # =============================
 def get_battle_log(player_tag):
     try:
-        headers = {"Authorization": f"Bearer {CR_TOKEN}"}
         encoded_tag = urllib.parse.quote(player_tag)
-        url = f"https://api.clashroyale.com/v1/players/{encoded_tag}/battlelog"
-
-        response = requests.get(url, headers=headers, timeout=10)
+        url = f"https://proxy.royaleapi.dev/v1/players/{encoded_tag}/battlelog"
+        response = requests.get(url, timeout=10)
 
         if response.status_code == 200:
             return response.json()
