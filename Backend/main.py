@@ -143,12 +143,9 @@ mid_results = [
 
 def get_player_name(tag):
     tag = tag.replace("#", "")
-
     url = f"https://proxy.royaleapi.dev/v1/players/%23{tag}"
-
-
-    r = requests.get(url, timeout=10)
-
+    headers = {"Authorization": f"Bearer {CR_TOKEN}"} 
+    r = requests.get(url, headers=headers, timeout=10)
     if r.status_code != 200:
         return None
 
@@ -169,60 +166,45 @@ def check_new_battles():
         subscriptions = supabase.table("user_players") \
             .select("user_id, player_tag") \
             .execute().data
-
         if not subscriptions:
             logging.info("No tracked players.")
             return
-
         # ---- Уникальные player_tag ----
         unique_tags = list(set(sub["player_tag"] for sub in subscriptions))
-
         for tag in unique_tags:
-
             battles = get_battle_log(tag)
             if not battles:
                 continue
-
             for battle in battles:
                 battle_time = battle["battleTime"]
-
                 exists = supabase.table("battles") \
                     .select("id") \
                     .eq("player_tag", tag) \
                     .eq("battle_time", battle_time) \
                     .execute()
-
                 if exists.data:
                     continue
-
                 try:
                     result = battle["team"][0]["crowns"] > battle["opponent"][0]["crowns"]
                 except:
                     continue
-
                 # ---- Сохраняем бой ----
                 raw_time = battle["battleTime"]
-
                 parsed_time = datetime.strptime(
                     raw_time, "%Y%m%dT%H%M%S.%fZ"
                 ).replace(tzinfo=timezone.utc)
-
                 battle_time = parsed_time.isoformat()
                 battle_hour = parsed_time.hour
                 today = parsed_time.date()
-
                 today_battles = supabase.table("battles") \
                     .select("id") \
                     .eq("player_tag", tag) \
                     .gte("battle_time", today.isoformat()) \
                     .limit(1) \
                     .execute().data
-
                 is_first_game = len(today_battles) == 0
                 is_night = battle_hour >= 0 and battle_hour < 6
-
                 night_line = ""
-
                 if is_night:
                     if result:
                         night_line = random.choice(NIGHT_WIN_MESSAGES)
@@ -243,7 +225,6 @@ def check_new_battles():
                     .execute().data
                 win_streak = 0
                 lose_streak = 0
-
                 for g in recent_games:
                     if g["result"]:
                         if lose_streak == 0:
@@ -569,10 +550,8 @@ def get_battle_log(player_tag):
     try:
         tag = player_tag.replace("#", "")
         url = f"https://proxy.royaleapi.dev/v1/players/%23{tag}/battlelog"
-
-        logging.info(f"REQUEST → {url}")
-
-        response = requests.get(url, timeout=10)
+        headers = {"Authorization": f"Bearer {CR_TOKEN}"}  # ← добавить
+        response = requests.get(url, headers=headers, timeout=10)
 
         logging.info(f"RESPONSE → {response.status_code}")
 
