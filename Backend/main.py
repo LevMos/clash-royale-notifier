@@ -1,157 +1,38 @@
-import os
-import logging
-import urllib.parse
-import requests
-import threading
-import io
-import random
-import matplotlib.pyplot as plt
 import html
-from flask import Flask, request, send_from_directory
-from dotenv import load_dotenv
-from supabase import create_client, Client
+import io
+import logging
+import os
+import random
+import threading
 from datetime import datetime, timedelta, timezone
 
-load_dotenv()
-CR_TOKEN = os.getenv("CR_TOKEN")
-TG_TOKEN = os.getenv("TG_TOKEN")
-SUPABASE_URL = os.getenv("SUPABASE_URL")
-SUPABASE_KEY = os.getenv("SUPABASE_KEY")
+import matplotlib.pyplot as plt
+from flask import Flask, request
+from supabase import create_client, Client
+
+from config import SUPABASE_URL, SUPABASE_KEY
+from clients.clash import get_battle_log, get_player_name
+from clients.telegram import send_telegram, send_photo, send_gif
+from content.messages import (
+    NIGHT_WIN_MESSAGES, NIGHT_LOSE_MESSAGES,
+    FIRST_GAME_WIN, FIRST_GAME_LOSE,
+    THREE_ZERO_MESSAGES, ZERO_THREE_MESSAGES,
+    WIN_STREAK_MESSAGES, LOSE_STREAK_MESSAGES,
+    good_results, bad_results, mid_results,
+    RANDOM_MEMES,
+)
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(message)s"
+)
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 app = Flask(__name__)
 check_lock = threading.Lock()
-NIGHT_WIN_MESSAGES = [
-    "🌙 Ночная победа",
-    "🌙 Ночные катки приносят победу",
-    "🦉 Кто-то играет слишком поздно",
-    "🌌 Арена не спит"
-]
-NIGHT_LOSE_MESSAGES = [
-    "😴 Похоже пора спать",
-    "🌙 Ночные катки не задались",
-    "🛌 Может лучше завтра",
-    "🌌 Арена ночью беспощадна"
-]
-FIRST_GAME_WIN = [
-    "🌅 Отличное начало дня",
-    "☀ День начинается с победы",
-    "🔥 Первая кровь на арене сегодня"
-]
-FIRST_GAME_LOSE = [
-    "☕ День начинается тяжело",
-    "😴 Нужно ещё проснуться",
-    "📉 Не самое лучшее начало дня"
-]
-THREE_ZERO_MESSAGES = [
-    "💥 Легчайшая для величайшого",
-    "👑 Без шансов",
-    "⚡ ez 3-0",
-    "🏆 Идеальная игра",
-    "🔥 Соперника испепилила спарки ШТОРМА",
-    "🤑 Мое имя Дорого, фамилия Богато"
-]
-ZERO_THREE_MESSAGES = [
-    "💀 это минус вайбик (и кубки)",
-    "🪦 Проебуньки от штормуньки",
-    "🤕 Может поменяем колоду?",
-    "📉 Больно смотреть",
-    "🚑 Шторм бы гордился.....и беймил"
-]
-WIN_STREAK_MESSAGES = {
-    3: [
-        "⚡ Победная серия начинается",
-        "🔥 Скоро разбор от 5-ти кратного чемпиона",
-        "🎯 3 победы - он идет по стопам штормика ",
-    ],
-    5: [
-        "🔥 Легчайшая 5я победа",
-        "🚀 Как же он силен",
-        "💪 Сегодня арена его",
-    ],
-    7: [
-        "🚀 Серия становится пугающей",
-        "👀 Перепсываем колоду",
-        "⚔ Это ради митер Л?",
-    ],
-    10: [
-        "👑 ПОЛНОЕ УНИЧТОЖЕНИЕ",
-        "🏆 ШТОООООООРМ",
-        "💀 Соперники могут расходиться",
-    ]
-}
-LOSE_STREAK_MESSAGES = {
-    3: [
-        "🫠 Сегодня карты явно против него",
-        "🤕 Допустимый урон",
-        "📉 Отвлекли немного",
-    ],
-    5: [
-        "💀 По беймрейту выиграл зато",
-        "🪦 Кто-то забыл как побеждать",
-        "🥶 Неприятный человек попался",
-    ],
-    8: [
-        "🚑 После такого удаляют клеш...",
-        "🧯 Че закибербулили тебя да?",
-        "😭 МИМИМИМИМИМИМИМИМИМИ",
-    ]
-}
-good_results = [
-    (
-        "🔥 Шторм разрывает арену сегодня",
-        "https://media3.giphy.com/media/v1.Y2lkPTc5MGI3NjExMzBiamJmcmc1ZWdqcjdsMzQ4YTl0YnIwY2V2a2FrNndkY3dtbGpucyZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/aR6tiTgr9WObz0VB8s/giphy.gif"
-    ),
-    (
-        "⚡ Сегодня соперники просто не успевали ставить карты",
-        "https://media.giphy.com/media/v1.Y2lkPWVjZjA1ZTQ3M3dtdDVqNG5pZmF0Mndqb202Z2EzcHNiZGpxc3FnaDJvajN1YTVpYyZlcD12MV9zdGlja2Vyc19zZWFyY2gmY3Q9cw/U3I2Eko8KQfWKxMMqP/giphy.gif"
-    ),
-    (
-        "🏆 Арена сегодня принадлежала Шторму",
-        "https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExOW5xczVxaXpsbWZmbGZleGgzZ2ljYmYxMGQ0dHM1emRuMmt2YWMweCZlcD12MV9zdGlja2Vyc19zZWFyY2gmY3Q9cw/ky9bxpYbxyuFZJEmwX/giphy.gif"
-    )
-]
-bad_results = [
-    (
-        "💀 Шторм щедро раздал кубков соперникам сегодня",
-        "https://media1.giphy.com/media/v1.Y2lkPTc5MGI3NjExMmdzOHQyMDM0b3kxNmJ4NTZqdDdzcHV5dmx2Z2Via2V6bnI1bmhvdSZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/iDCXC1dqH2yu8PCyd8/giphy.gif"
-    ),
-    (
-        "🪦 Сегодня арена была безжалостна",
-        "https://media.giphy.com/media/v1.Y2lkPWVjZjA1ZTQ3NTl3anY2c2FhbDZ1djV0aXB5MGE2YTFvNHZraHloanIyOHhhM3h2YiZlcD12MV9naWZzX3NlYXJjaCZjdD1n/wka72YWgDbNlCa7OeP/giphy.gif"
-    ),
-    (
-        "🥀 День был тяжёлый…",
-        "https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExbmh2czVjc2VjMTN4M3J5aGFxcjRudGxhbTA3ZHhvMmVodXBvM3p2diZlcD12MV9naWZzX3NlYXJjaCZjdD1n/EBeKznBAtxaH9uChgk/giphy.gif"
-    )
-]
-mid_results = [
-    (
-        "⚖️ Шторм копил эликсир сегодня",
-        "https://media3.giphy.com/media/v1.Y2lkPTc5MGI3NjExeTlpOWZuOTlpajlzaWpobGZzdTRzb2dlMHRycXF5cGl5ZmRmeGc5YyZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/g6qR2iAFg5UAX58Vd5/giphy.gif"
-    ),
-    (
-        "😐 День прошёл без особых потрясений",
-        "https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExbXZ1NjBhenl6dmJ4MDJ6OTRoajh6Zmo2aXAzZXdpd2c0YWd2aWFxaCZlcD12MV9naWZzX3NlYXJjaCZjdD1n/480kfa3gt1vO04dYzW/giphy.gif"
-    ),
-    (
-        "🎮 Рабочий день на арене",
-        "https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExc3huM21mMmZ0NmJ1OWNkbm13NGxtZHdjeWZwdmkwYmR4M28ycndrcyZlcD12MV9naWZzX3NlYXJjaCZjdD1n/dGiuYXO8T9YljuwcNn/giphy.gif"
-    )
-]
-
-def get_player_name(tag):
-    tag = tag.replace("#", "")
-    url = f"https://proxy.royaleapi.dev/v1/players/%23{tag}"
-    headers = {"Authorization": f"Bearer {CR_TOKEN}"} 
-    r = requests.get(url, headers=headers, timeout=10)
-    if r.status_code != 200:
-        return None
-
-    data = r.json()
-
-    return data.get("name")
+app = Flask(__name__)
+check_lock = threading.Lock()
 
 def get_random_streak_message(streak, pool):
     eligible = [k for k in pool.keys() if streak >= k]
@@ -244,11 +125,7 @@ def check_new_battles():
                     streak_line = f"💀 Lose streak: {lose_streak}"
                     meme_line = get_random_streak_message(lose_streak, LOSE_STREAK_MESSAGES)
                 if random.random() < 0.03:
-                    meme_line = random.choice([
-                        "🤖 Бот подозревает использование чит-кодов",
-                        "👀 Supercell уже наблюдает",
-                        "🧠 IQ этой колоды явно выше среднего"
-                    ])
+                    meme_line = random.choice(RANDOM_MEMES)
                 # ---- Средний gain за 10 ----
                 last_10 = supabase.table("battles") \
                     .select("battle_time") \
@@ -500,72 +377,6 @@ logging.basicConfig(
     format="%(asctime)s - %(levelname)s - %(message)s"
 )
 
-def send_telegram(message, chat_id):
-    try:
-        url = f"https://api.telegram.org/bot{TG_TOKEN}/sendMessage"
-
-        data = {
-            "chat_id": chat_id,
-            "text": message,
-            "parse_mode": "HTML"
-        }
-
-        requests.post(url, data=data, timeout=10)
-
-    except Exception as e:
-        logging.error(f"Telegram send error: {e}")
-
-def send_photo(chat_id, image_bytes):
-    try:
-        url = f"https://api.telegram.org/bot{TG_TOKEN}/sendPhoto"
-        files = {
-            "photo": ("graph.png", image_bytes)
-        }
-        data = {
-            "chat_id": chat_id
-        }
-        requests.post(url, data=data, files=files, timeout=20)
-
-    except Exception as e:
-        logging.error(f"Telegram photo send error: {e}")
-
-def send_gif(chat_id, gif_url):
-    try:
-        url = f"https://api.telegram.org/bot{TG_TOKEN}/sendAnimation"
-
-        data = {
-            "chat_id": chat_id,
-            "animation": gif_url
-        }
-
-        requests.post(url, data=data, timeout=20)
-
-    except Exception as e:
-        logging.error(f"GIF send error: {e}")
-# =============================
-# CLASH API
-# =============================
-def get_battle_log(player_tag):
-    try:
-        tag = player_tag.replace("#", "")
-        url = f"https://proxy.royaleapi.dev/v1/players/%23{tag}/battlelog"
-        headers = {"Authorization": f"Bearer {CR_TOKEN}"}  # ← добавить
-        response = requests.get(url, headers=headers, timeout=10)
-
-        logging.info(f"RESPONSE → {response.status_code}")
-
-        if response.status_code == 200:
-            return response.json()
-
-        logging.error(f"{player_tag} | Proxy error: {response.status_code} | {response.text}")
-
-    except Exception as e:
-        logging.error(f"Proxy request failed: {e}")
-
-    return []
-# ============================
-# GRAPH BUILD
-# ============================
 def send_winrate_graph(chat_id, tag, last_n=None):
     try:
         tag = tag.upper()
