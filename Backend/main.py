@@ -616,26 +616,6 @@ def handle_message(message):
 # =============================
 # WEBAPP BUTTON
 # =============================
-def send_webapp_button(chat_id, tag):
-    url = f"https://your-app.onrender.com/app?tag={tag}"
-
-    keyboard = {
-        "inline_keyboard": [[
-            {
-                "text": "📊 Open Interactive Dashboard",
-                "web_app": {"url": url}
-            }
-        ]]
-    }
-
-    requests.post(
-        f"https://api.telegram.org/bot{TG_TOKEN}/sendMessage",
-        json={
-            "chat_id": chat_id,
-            "text": f"Interactive stats for {tag}",
-            "reply_markup": keyboard
-        }
-    )
 
 def register_user(chat_id, username=None):
     try:
