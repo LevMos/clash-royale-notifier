@@ -1,12 +1,13 @@
 import os
 import logging
-import requests
 import urllib.parse
+import requests
 import threading
 import io
 import random
 import matplotlib.pyplot as plt
-from flask import Flask, request
+import html
+from flask import Flask, request, send_from_directory
 from dotenv import load_dotenv
 from supabase import create_client, Client
 from datetime import datetime, timedelta, timezone
@@ -18,7 +19,6 @@ SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
-from flask import send_from_directory
 
 app = Flask(__name__)
 check_lock = threading.Lock()
@@ -161,6 +161,8 @@ def get_random_streak_message(streak, pool):
 
     level = max(eligible)
     return random.choice(pool[level])
+def parse_cr_time(raw):
+    return datetime.strptime(raw, "%Y%m%dT%H%M%S.%fZ").replace(tzinfo=timezone.utc)
 def check_new_battles():
     try:
         subscriptions = supabase.table("user_players") \
@@ -169,14 +171,14 @@ def check_new_battles():
         if not subscriptions:
             logging.info("No tracked players.")
             return
-        # ---- Уникальные player_tag ----
         unique_tags = list(set(sub["player_tag"] for sub in subscriptions))
         for tag in unique_tags:
             battles = get_battle_log(tag)
             if not battles:
                 continue
-            for battle in battles:
-                battle_time = battle["battleTime"]
+            for battle in reversed(battles): 
+                parsed_time = parse_cr_time(battle["battleTime"])
+                battle_time = parsed_time.isoformat()
                 exists = supabase.table("battles") \
                     .select("id") \
                     .eq("player_tag", tag) \
@@ -188,12 +190,6 @@ def check_new_battles():
                     result = battle["team"][0]["crowns"] > battle["opponent"][0]["crowns"]
                 except:
                     continue
-                # ---- Сохраняем бой ----
-                raw_time = battle["battleTime"]
-                parsed_time = datetime.strptime(
-                    raw_time, "%Y%m%dT%H%M%S.%fZ"
-                ).replace(tzinfo=timezone.utc)
-                battle_time = parsed_time.isoformat()
                 battle_hour = parsed_time.hour
                 today = parsed_time.date()
                 today_battles = supabase.table("battles") \
@@ -261,19 +257,19 @@ def check_new_battles():
                     .limit(10) \
                     .execute().data
 
+                trophy_by_time = {
+                    parse_cr_time(b["battleTime"]): b["team"][0].get("trophyChange")
+                    for b in battles
+                }
+
                 total_change = 0
                 count = 0
 
                 for g in last_10:
-                    matched = next(
-                        (b for b in battles if b["battleTime"] == g["battle_time"]),
-                        None
-                    )
-                    if matched:
-                        tc = matched["team"][0].get("trophyChange")
-                        if tc is not None:
-                            total_change += tc
-                            count += 1
+                    tc = trophy_by_time.get(datetime.fromisoformat(g["battle_time"]))
+                    if tc is not None:
+                        total_change += tc
+                        count += 1
 
                 avg_line = f"📊 Avg (10): {round(total_change/count,1)}" if count > 0 else ""
 
@@ -330,9 +326,6 @@ def check_new_battles():
                         else:
                             first_game_line = random.choice(FIRST_GAME_LOSE)
 
-                    if night_line:
-                        lines.append(night_line)
-
                     trophy_line = ""
                     trophies_total_line = ""
 
@@ -353,8 +346,8 @@ def check_new_battles():
                     lines = [
                         status_line,
                         "",
-                        f"👤 <b>{player_name}</b> ({player_trophies}🏆)",
-                        f"🆚 {opponent_name} ({opponent_trophies}🏆)",
+                        f"👤 <b>{html.escape(player_name)}</b> ({player_trophies}🏆)",
+                        f"🆚 {html.escape(opponent_name)} ({opponent_trophies}🏆)",
                         "",
                         f"📊 {player_crowns} - {opponent_crowns}",
                     ]
@@ -373,6 +366,8 @@ def check_new_battles():
                         lines.append(special_line)
                     if first_game_line:
                         lines.append(first_game_line)
+                    if night_line:
+                        lines.append(night_line)                        
 
                     lines.append(battle_mode_line)
 
@@ -382,7 +377,6 @@ def check_new_battles():
                     logging.error(f"Battle message build error: {e}")
                     continue
 
-                # ---- Отправляем ВСЕМ подписчикам ----
                 subscribers = [
                     s["user_id"]
                     for s in subscriptions
@@ -398,6 +392,7 @@ def check_new_battles():
         logging.error(f"Battle check error: {e}")
 def send_daily_reports():
     try:
+        f"📊 <b>Daily Report — {html.escape(name)}</b>\n\n"
         today = datetime.now(timezone.utc).date()
         users = supabase.table("users") \
             .select("id, daily_player_tag, player_name") \
@@ -417,8 +412,14 @@ def send_daily_reports():
             chat_id = user["id"]
             tag = user["daily_player_tag"]
             name = user.get("player_name") or tag
+            already_sent = supabase.table("daily_report_log") \
+                .select("user_id") \
+                .eq("user_id", chat_id) \
+                .eq("report_date", str(today)) \
+                .execute().data
+            if already_sent:
+                continue
 
-            # --- Получаем игры за вчера ---
             response = supabase.table("battles") \
                 .select("result") \
                 .eq("player_tag", tag) \
@@ -498,9 +499,7 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(levelname)s - %(message)s"
 )
-# =============================
-# TELEGRAM
-# =============================
+
 def send_telegram(message, chat_id):
     try:
         url = f"https://api.telegram.org/bot{TG_TOKEN}/sendMessage"
